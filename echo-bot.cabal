@@ -1,0 +1,37 @@
+cabal-version: 1.12
+
+-- This file has been generated from package.yaml by hpack version 0.33.0.
+--
+-- see: https://github.com/sol/hpack
+--
+-- hash: 819b3de4d9259ddb24cc3850409f7d41687083bac1f2cc40be65fd7a9516ca7f
+
+name:           echo-bot
+version:        0.1.0.0
+category:       Web
+homepage:       https://github.com/githubuser/echo-bot#readme
+author:         Author name here
+maintainer:     example@example.com
+copyright:      2021 Author name here
+license:        BSD3
+license-file:   LICENSE
+build-type:     Simple
+extra-source-files:
+    README.md
+
+executable echo-bot
+  main-is: Main.hs
+  other-modules:
+      Paths_echo_bot
+  hs-source-dirs:
+      src
+  build-depends:
+      aeson
+    , aeson-pretty
+    , base >=4.7 && <5
+    , bytestring
+    , http-conduit
+    , lens
+    , lens-aeson
+    , text
+  default-language: Haskell2010

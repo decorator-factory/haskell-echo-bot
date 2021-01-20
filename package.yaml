@@ -1,0 +1,27 @@
+name:                echo-bot
+version:             0.1.0.0
+#synopsis:
+#description:
+homepage:            https://github.com/githubuser/echo-bot#readme
+license:             BSD3
+author:              Author name here
+maintainer:          example@example.com
+copyright:           2021 Author name here
+category:            Web
+extra-source-files:
+- README.md
+
+dependencies:
+  - base >= 4.7 && < 5
+  - lens
+  - lens-aeson
+  - aeson
+  - aeson-pretty
+  - bytestring
+  - text
+  - http-conduit
+
+executables:
+  echo-bot:
+    source-dirs:      src
+    main:             Main.hs
