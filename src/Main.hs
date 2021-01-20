@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -13,16 +14,15 @@ import Control.Concurrent (threadDelay)
 
 import Control.Lens ( preview )
 import Data.Aeson.Lens ( key, _String, _Integer, _Array )
-import Data.Aeson ( Value )
+import Data.Aeson
 import qualified Data.Text as T
+import qualified Data.Text.IO as TIO
 
 import Data.Aeson.Encode.Pretty ( encodePretty )
 import Data.Maybe (mapMaybe)
 import Data.Foldable (Foldable(toList))
-
-
-botToken :: String
-botToken = "" -- insert bot token here
+import System.Environment (lookupEnv)
+import System.IO (hGetContents, IOMode(ReadMode), withFile)
 
 
 -- Request building stuff
@@ -65,7 +65,7 @@ parseTgUpdate value = do
   updateId <- preview (key "update_id" . _Integer) value
   message <- preview (key "message" . key "text" . _String) value
   author <- preview (key "message" . key "from" . key "username" . _String) value
-  return TgUpdate { updateId, message, author }
+  return TgUpdate{..}
 
 
 applyUpdates :: [TgUpdate] -> BotState -> BotState
@@ -95,16 +95,16 @@ initialBotState = BotState
 
 -- Main loop:
 
-pollForever :: Int -> BotState -> IO ()
-pollForever timeout state = do
+pollForever :: Config -> BotState -> IO ()
+pollForever config state = do
 
   putStrLn $ "Given state" ++ show state
 
   let updateRequest =
-        buildPostRequest botToken "getUpdates"
+        buildPostRequest (botToken config) "getUpdates"
         & withParam "limit" "10"
         & withParam "offset" (show $ latestUpdateId state)
-        & withParam "timeout" (show timeout)
+        & withParam "timeout" (show $ timeoutSeconds config)
 
   putStrLn "Getting updates..."
 
@@ -113,8 +113,8 @@ pollForever timeout state = do
   print json
 
   let updatesM = do
-      updateJsons <- preview (key "result" . _Array) json
-      return $ mapMaybe parseTgUpdate $ toList updateJsons
+        updateJsons <- preview (key "result" . _Array) json
+        return $ mapMaybe parseTgUpdate $ toList updateJsons
 
   let newState = case updatesM of
         Just updates -> applyUpdates updates state
@@ -122,8 +122,42 @@ pollForever timeout state = do
   print updatesM
 
   threadDelay 500000
-  pollForever timeout newState
+  pollForever config newState
 
+
+-- Program configuration
+
+data Config = Config
+  { botToken :: String
+  , timeoutSeconds :: Integer
+  }
+  deriving Show
+
+instance FromJSON Config where
+  parseJSON = withObject "Config" $ \o -> do
+    botToken <- o .: "token"
+    timeoutSeconds <- o .:? "timeout" .!= 2
+    return Config{..}
+
+
+-- entry point
 
 main :: IO ()
-main = pollForever 4 initialBotState
+main = do
+  configPathM <- lookupEnv "CONFIG_PATH"
+
+  configPath <- case configPathM of
+    Just configPath -> return configPath
+    _               -> fail "Environment variable CONFIG_PATH not found"
+
+  print configPath
+
+  configE <- eitherDecodeFileStrict configPath
+
+  config :: Config <- case configE of
+    Left e -> fail e
+    Right config -> return config
+
+  print config
+
+  pollForever config initialBotState
