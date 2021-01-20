@@ -4,29 +4,28 @@
 
 module Main where
 
-import Network.HTTP.Simple ( httpBS, httpJSON, getResponseBody, Request, Query, addToRequestQueryString)
+import Network.HTTP.Simple (httpJSON, getResponseBody, Request, Query, addToRequestQueryString)
 import qualified Data.ByteString.Char8 as BS
-import qualified Data.ByteString.Lazy.Char8 as LBS
 import Data.Function ( (&) )
 import Data.String ( IsString(..) )
 
 import Control.Concurrent (threadDelay)
 
-import Control.Lens (Ixed(ix),  preview )
+import Control.Lens ( preview )
 import Data.Aeson.Lens ( key, _String, _Integer, _Array )
 import Data.Aeson ( Value )
-import Text.Read ( readMaybe )
 import qualified Data.Text as T
 
 import Data.Aeson.Encode.Pretty ( encodePretty )
-import Control.Monad (when)
-import Data.Maybe (mapMaybe, catMaybes)
+import Data.Maybe (mapMaybe)
 import Data.Foldable (Foldable(toList))
 
 
 botToken :: String
 botToken = "" -- insert bot token here
 
+
+-- Request building stuff
 
 buildRequestURL :: String -> String -> String -> String
 buildRequestURL method token endpoint =
@@ -50,6 +49,8 @@ queryEndpoint req = do
   res <- httpJSON req
   return $ getResponseBody res
 
+
+-- Telegram updates stuff:
 
 data TgUpdate = TgUpdate
   { updateId :: Integer
@@ -78,6 +79,22 @@ applyUpdate TgUpdate{updateId} state@BotState{latestUpdateId} =
     }
 
 
+-- Bot state stuff:
+
+newtype BotState = BotState
+  { latestUpdateId :: Integer
+  }
+  deriving Show
+
+
+initialBotState :: BotState
+initialBotState = BotState
+  { latestUpdateId = -100
+  }
+
+
+-- Main loop:
+
 pollForever :: Int -> BotState -> IO ()
 pollForever timeout state = do
 
@@ -93,6 +110,8 @@ pollForever timeout state = do
 
   json <- queryEndpoint updateRequest
 
+  print json
+
   let updatesM = do
       updateJsons <- preview (key "result" . _Array) json
       return $ mapMaybe parseTgUpdate $ toList updateJsons
@@ -106,17 +125,5 @@ pollForever timeout state = do
   pollForever timeout newState
 
 
-newtype BotState = BotState
-  { latestUpdateId :: Integer
-  }
-  deriving Show
-
-
-initialBotState :: BotState
-initialBotState = BotState
-  { latestUpdateId = -100
-  }
-
-
 main :: IO ()
-main = pollForever 2 initialBotState
+main = pollForever 4 initialBotState
