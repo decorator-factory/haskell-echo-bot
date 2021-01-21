@@ -33,18 +33,14 @@ buildRequestURL :: String -> String -> String -> String
 buildRequestURL method token endpoint =
   method ++ " https://api.telegram.org/bot" ++ token ++ "/" ++ endpoint
 
-
 buildGetRequest :: String -> String -> Request
 buildGetRequest token endpoint = fromString $ buildRequestURL "GET" token endpoint
-
 
 buildPostRequest :: String -> String -> Request
 buildPostRequest token endpoint = fromString $ buildRequestURL "POST" token endpoint
 
-
 withParam :: String -> String -> Request -> Request
 withParam name value = addToRequestQueryString [(BS.pack name, Just $ BS.pack value)]
-
 
 queryEndpoint :: Request  -> IO Value
 queryEndpoint req = do
@@ -69,7 +65,6 @@ instance FromJSON TgUpdate where
 applyUpdates :: [TgUpdate] -> BotState -> ([Action], BotState)
 applyUpdates updates state = foldr applyUpdate ([], state) updates
 
-
 applyUpdate :: TgUpdate -> ([Action], BotState) -> ([Action], BotState)
 applyUpdate
   TgUpdate{updateId, message=TgMessage{text, chat}}
@@ -79,7 +74,6 @@ applyUpdate
             Just text -> [ SendMessage (chatId chat) text ]
             Nothing -> []
     in (newActions ++ actions, newState)
-
 
 parseUpdate :: Value -> Maybe TgUpdate
 parseUpdate = parseMaybe parseJSON
@@ -147,19 +141,16 @@ data TgChatInfo
     }
   deriving Show
 
-
 parsePrivateChatInfo :: Object -> Parser TgChatInfo
 parsePrivateChatInfo o = do
   chatFirstName <- o .: "first_name"
   chatLastName <- o .:? "last_name"
   return TgPrivateChat{..}
 
-
 parseGroupInfo :: Object  -> Parser TgChatInfo
 parseGroupInfo o = do
   groupTitle <- o .: "title"
   return TgGroup{..}
-
 
 instance FromJSON TgChatInfo where
   parseJSON = withObject "TgChatInfo" $ \o -> do
@@ -169,7 +160,6 @@ instance FromJSON TgChatInfo where
       "supergroup" -> parseGroupInfo o
       "private" -> parsePrivateChatInfo o
       _ -> parseFail $ "Unsupported chat type: " ++ chatType
-
 
 instance FromJSON TgChat where
   parseJSON = withObject "TgChat" $ \o -> do
@@ -188,18 +178,15 @@ data Action
     }
     deriving Show
 
-
 performAction :: Config -> Action -> IO ()
 performAction
   Config{botToken}
   SendMessage{sendChatId, messageToSend} = do
-    let req =
-          buildGetRequest botToken "sendMessage"
-          & withParam "chat_id" (show sendChatId)
-          & withParam "text" (T.unpack messageToSend)
-    queryEndpoint req
+    queryEndpoint $
+      buildGetRequest botToken "sendMessage"
+      & withParam "chat_id" (show sendChatId)
+      & withParam "text" (T.unpack messageToSend)
     return ()
-
 
 performActions :: Config -> [Action] -> IO ()
 performActions config = mapM_ (performAction config)
@@ -211,7 +198,6 @@ newtype BotState = BotState
   { latestUpdateId :: Integer
   }
   deriving Show
-
 
 initialBotState :: BotState
 initialBotState = BotState
@@ -225,16 +211,13 @@ pollForever :: Config -> BotState -> IO ()
 pollForever config state = do
 
   putStrLn $ "Given state" ++ show state
-
-  let updateRequest =
-        buildPostRequest (botToken config) "getUpdates"
-        & withParam "limit" "10"
-        & withParam "offset" (show $ latestUpdateId state)
-        & withParam "timeout" (show $ timeoutSeconds config)
-
   putStrLn "Getting updates..."
 
-  json <- queryEndpoint updateRequest
+  json <- queryEndpoint $
+    buildGetRequest (botToken config) "getUpdates"
+    & withParam "limit" "10"
+    & withParam "offset" (show $ latestUpdateId state)
+    & withParam "timeout" (show $ timeoutSeconds config)
 
   LBS.putStrLn $ encodePretty json
 
