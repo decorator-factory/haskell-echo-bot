@@ -73,6 +73,28 @@ data TgUser = TgUser
   , id :: Integer
   }
   deriving (Show, Eq)
+
+
+instance FromJSON TgUser where
+  parseJSON = withObject "TgUser" $ \o -> do
+    username <- o .:? "username"
+    firstName <- o .: "first_name"
+    lastName <- o .:? "last_name"
+    id <- o .: "id"
+    return TgUser{..}
+
+
+instance FromJSON TgMessage where
+  parseJSON = withObject "TgMessage" $ \o -> do
+    author <- o .: "from"
+    text <- o .:? "text"
+    return TgMessage{..}
+
+
+instance FromJSON TgUpdate where
+  parseJSON = withObject "TgUpdate" $ \o -> do
+    updateId <- o .: "update_id"
+    message <- o .: "message"
   return TgUpdate{..}
 
 
