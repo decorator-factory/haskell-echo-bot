@@ -76,7 +76,7 @@ data TgUser = TgUser
   { username :: Maybe T.Text
   , firstName :: T.Text
   , lastName :: Maybe T.Text
-  , id :: Integer
+  , userId :: Integer
   , kind :: TgUserKind
   }
   deriving (Show, Eq)
@@ -87,7 +87,7 @@ instance FromJSON TgUser where
     username <- o .:? "username"
     firstName <- o .: "first_name"
     lastName <- o .:? "last_name"
-    id <- o .: "id"
+    userId <- o .: "id"
     isBot <- o .: "is_bot"
     let kind = if isBot then Bot else Human
     return TgUser{..}
@@ -111,6 +111,21 @@ applyUpdates :: [TgUpdate] -> BotState -> BotState
 applyUpdates updates state = foldr applyUpdate state updates
 
 
+applyUpdates2 :: [TgUpdate] -> BotState -> ([Action], BotState)
+applyUpdates2 updates state = foldr applyUpdate2 ([], state) updates
+
+
+applyUpdate2 :: TgUpdate -> ([Action], BotState) -> ([Action], BotState)
+applyUpdate2
+  TgUpdate{updateId, message=TgMessage{text, author=TgUser{userId}}}
+  (actions, state@BotState{latestUpdateId}) =
+    let newState = state { latestUpdateId = max (updateId + 1) latestUpdateId }
+        newActions = case text of
+            Just text -> [ SendMessage userId text ]
+            Nothing -> []
+    in (newActions ++ actions, newState)
+
+
 applyUpdate :: TgUpdate -> BotState -> BotState
 applyUpdate TgUpdate{updateId} state@BotState{latestUpdateId} =
   state
@@ -122,6 +137,26 @@ parseUpdate = parseMaybe parseJSON
 
 
 -- Bot state stuff:
+
+data Action
+  = SendMessage { sendChatId :: Integer, messageToSend :: T.Text }
+
+
+performAction :: Config -> Action -> IO ()
+performAction
+  Config{botToken}
+  SendMessage{sendChatId, messageToSend} = do
+    let req =
+          buildGetRequest botToken "sendMessage"
+          & withParam "chat_id" (show sendChatId)
+          & withParam "text" (T.unpack messageToSend)
+    queryEndpoint req
+    return ()
+
+
+performActions :: Config -> [Action] -> IO ()
+performActions config = mapM_ (performAction config)
+
 
 newtype BotState = BotState
   { latestUpdateId :: Integer
@@ -158,10 +193,11 @@ pollForever config state = do
         updateJsons <- preview (key "result" . _Array) json
         return $ mapMaybe parseUpdate $ toList updateJsons
 
-  let newState = case updatesM of
-        Just updates -> applyUpdates updates state
-        Nothing -> state
-  print updatesM
+  let (actions, newState) = case updatesM of
+        Just updates -> applyUpdates2 updates state
+        Nothing -> ([], state)
+
+  performActions config actions
 
   threadDelay 500000
   pollForever config newState
