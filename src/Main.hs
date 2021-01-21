@@ -7,6 +7,7 @@ module Main where
 
 import Network.HTTP.Simple (httpJSON, getResponseBody, Request, Query, addToRequestQueryString)
 import qualified Data.ByteString.Char8 as BS
+import qualified Data.ByteString.Lazy.Char8 as LBS
 import Data.Function ( (&) )
 import Data.String ( IsString(..) )
 
@@ -23,6 +24,7 @@ import Data.Maybe (mapMaybe)
 import Data.Foldable (Foldable(toList))
 import System.Environment (lookupEnv)
 import System.IO (hGetContents, IOMode(ReadMode), withFile)
+import Data.Aeson.Types (parseMaybe)
 
 
 -- Request building stuff
@@ -95,7 +97,7 @@ instance FromJSON TgUpdate where
   parseJSON = withObject "TgUpdate" $ \o -> do
     updateId <- o .: "update_id"
     message <- o .: "message"
-  return TgUpdate{..}
+    return TgUpdate{..}
 
 
 applyUpdates :: [TgUpdate] -> BotState -> BotState
@@ -107,6 +109,9 @@ applyUpdate TgUpdate{updateId} state@BotState{latestUpdateId} =
   state
     { latestUpdateId = max (updateId + 1) latestUpdateId
     }
+
+parseUpdate :: Value -> Maybe TgUpdate
+parseUpdate = parseMaybe parseJSON
 
 
 -- Bot state stuff:
@@ -140,11 +145,11 @@ pollForever config state = do
 
   json <- queryEndpoint updateRequest
 
-  print json
+  LBS.putStrLn $ encodePretty json
 
   let updatesM = do
         updateJsons <- preview (key "result" . _Array) json
-        return $ mapMaybe parseTgUpdate $ toList updateJsons
+        return $ mapMaybe parseUpdate $ toList updateJsons
 
   let newState = case updatesM of
         Just updates -> applyUpdates updates state
