@@ -52,7 +52,7 @@ queryEndpoint req = do
   return $ getResponseBody res
 
 
--- Telegram updates stuff:
+-- Update type:
 
 data TgUpdate = TgUpdate
   { updateId :: Integer
@@ -60,6 +60,32 @@ data TgUpdate = TgUpdate
   }
   deriving Show
 
+instance FromJSON TgUpdate where
+  parseJSON = withObject "TgUpdate" $ \o -> do
+    updateId <- o .: "update_id"
+    message <- o .: "message"
+    return TgUpdate{..}
+
+applyUpdates :: [TgUpdate] -> BotState -> ([Action], BotState)
+applyUpdates updates state = foldr applyUpdate ([], state) updates
+
+
+applyUpdate :: TgUpdate -> ([Action], BotState) -> ([Action], BotState)
+applyUpdate
+  TgUpdate{updateId, message=TgMessage{text, chat}}
+  (actions, state@BotState{latestUpdateId}) =
+    let newState = state { latestUpdateId = max (updateId + 1) latestUpdateId }
+        newActions = case text of
+            Just text -> [ SendMessage (chatId chat) text ]
+            Nothing -> []
+    in (newActions ++ actions, newState)
+
+
+parseUpdate :: Value -> Maybe TgUpdate
+parseUpdate = parseMaybe parseJSON
+
+
+-- Message type:
 
 data TgMessage = TgMessage
   { author :: TgUser
@@ -68,10 +94,18 @@ data TgMessage = TgMessage
   }
   deriving Show
 
+instance FromJSON TgMessage where
+  parseJSON = withObject "TgMessage" $ \o -> do
+    author <- o .: "from"
+    text <- o .:? "text"
+    chat <- o .: "chat"
+    return TgMessage{..}
+
+
+-- User type:
 
 data TgUserKind = Human | Bot
   deriving (Show, Eq, Ord)
-
 
 data TgUser = TgUser
   { username :: Maybe T.Text
@@ -82,6 +116,18 @@ data TgUser = TgUser
   }
   deriving (Show, Eq)
 
+instance FromJSON TgUser where
+  parseJSON = withObject "TgUser" $ \o -> do
+    username <- o .:? "username"
+    userFirstName <- o .: "first_name"
+    userLastName <- o .:? "last_name"
+    userId <- o .: "id"
+    isBot <- o .: "is_bot"
+    let userKind = if isBot then Bot else Human
+    return TgUser{..}
+
+
+-- Chat types:
 
 data TgChat = TgChat
   { chatId :: Integer
@@ -133,52 +179,7 @@ instance FromJSON TgChat where
     return TgChat{..}
 
 
-instance FromJSON TgUser where
-  parseJSON = withObject "TgUser" $ \o -> do
-    username <- o .:? "username"
-    userFirstName <- o .: "first_name"
-    userLastName <- o .:? "last_name"
-    userId <- o .: "id"
-    isBot <- o .: "is_bot"
-    let userKind = if isBot then Bot else Human
-    return TgUser{..}
-
-
-instance FromJSON TgMessage where
-  parseJSON = withObject "TgMessage" $ \o -> do
-    author <- o .: "from"
-    text <- o .:? "text"
-    chat <- o .: "chat"
-    return TgMessage{..}
-
-
-instance FromJSON TgUpdate where
-  parseJSON = withObject "TgUpdate" $ \o -> do
-    updateId <- o .: "update_id"
-    message <- o .: "message"
-    return TgUpdate{..}
-
-
-applyUpdates :: [TgUpdate] -> BotState -> ([Action], BotState)
-applyUpdates updates state = foldr applyUpdate ([], state) updates
-
-
-applyUpdate :: TgUpdate -> ([Action], BotState) -> ([Action], BotState)
-applyUpdate
-  TgUpdate{updateId, message=TgMessage{text, chat}}
-  (actions, state@BotState{latestUpdateId}) =
-    let newState = state { latestUpdateId = max (updateId + 1) latestUpdateId }
-        newActions = case text of
-            Just text -> [ SendMessage (chatId chat) text ]
-            Nothing -> []
-    in (newActions ++ actions, newState)
-
-
-parseUpdate :: Value -> Maybe TgUpdate
-parseUpdate = parseMaybe parseJSON
-
-
--- Bot state stuff:
+-- Actions:
 
 data Action
   = SendMessage
@@ -203,6 +204,8 @@ performAction
 performActions :: Config -> [Action] -> IO ()
 performActions config = mapM_ (performAction config)
 
+
+-- Bot state:
 
 newtype BotState = BotState
   { latestUpdateId :: Integer
