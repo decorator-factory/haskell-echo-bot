@@ -54,17 +54,25 @@ queryEndpoint req = do
 
 data TgUpdate = TgUpdate
   { updateId :: Integer
-  , message :: T.Text
-  , author :: T.Text
+  , message :: TgMessage
   }
   deriving Show
 
 
-parseTgUpdate :: Value -> Maybe TgUpdate
-parseTgUpdate value = do
-  updateId <- preview (key "update_id" . _Integer) value
-  message <- preview (key "message" . key "text" . _String) value
-  author <- preview (key "message" . key "from" . key "username" . _String) value
+data TgMessage = TgMessage
+  { author :: TgUser
+  , text :: Maybe T.Text
+  }
+  deriving (Show, Eq)
+
+
+data TgUser = TgUser
+  { username :: Maybe T.Text
+  , firstName :: T.Text
+  , lastName :: Maybe T.Text
+  , id :: Integer
+  }
+  deriving (Show, Eq)
   return TgUpdate{..}
 
 
