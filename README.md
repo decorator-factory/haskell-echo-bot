@@ -1,4 +1,5 @@
 # echo-bot
 
-To run the bot,  create a `bot_config.json` file and put your Telegram bot token in the
-appropriate JSON field.
+1. Create a `bot_config.json` file as a copy of `bot_config_template.json`
+2. Put your token in the appropriate field
+3. Run the bot with the `CONFIG_PATH` environment variable pointing to that file
