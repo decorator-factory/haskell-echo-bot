@@ -159,16 +159,12 @@ instance FromJSON TgUpdate where
     return TgUpdate{..}
 
 
-applyUpdates :: [TgUpdate] -> BotState -> BotState
-applyUpdates updates state = foldr applyUpdate state updates
+applyUpdates :: [TgUpdate] -> BotState -> ([Action], BotState)
+applyUpdates updates state = foldr applyUpdate ([], state) updates
 
 
-applyUpdates2 :: [TgUpdate] -> BotState -> ([Action], BotState)
-applyUpdates2 updates state = foldr applyUpdate2 ([], state) updates
-
-
-applyUpdate2 :: TgUpdate -> ([Action], BotState) -> ([Action], BotState)
-applyUpdate2
+applyUpdate :: TgUpdate -> ([Action], BotState) -> ([Action], BotState)
+applyUpdate
   TgUpdate{updateId, message=TgMessage{text, chat}}
   (actions, state@BotState{latestUpdateId}) =
     let newState = state { latestUpdateId = max (updateId + 1) latestUpdateId }
@@ -177,12 +173,6 @@ applyUpdate2
             Nothing -> []
     in (newActions ++ actions, newState)
 
-
-applyUpdate :: TgUpdate -> BotState -> BotState
-applyUpdate TgUpdate{updateId} state@BotState{latestUpdateId} =
-  state
-    { latestUpdateId = max (updateId + 1) latestUpdateId
-    }
 
 parseUpdate :: Value -> Maybe TgUpdate
 parseUpdate = parseMaybe parseJSON
@@ -252,7 +242,7 @@ pollForever config state = do
   print updatesM
 
   let (actions, newState) = case updatesM of
-        Just updates -> applyUpdates2 updates state
+        Just updates -> applyUpdates updates state
         Nothing -> ([], state)
 
   performActions config actions
