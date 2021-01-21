@@ -68,11 +68,16 @@ data TgMessage = TgMessage
   deriving (Show, Eq)
 
 
+data TgUserKind = Human | Bot
+  deriving (Show, Eq, Ord)
+
+
 data TgUser = TgUser
   { username :: Maybe T.Text
   , firstName :: T.Text
   , lastName :: Maybe T.Text
   , id :: Integer
+  , kind :: TgUserKind
   }
   deriving (Show, Eq)
 
@@ -83,6 +88,8 @@ instance FromJSON TgUser where
     firstName <- o .: "first_name"
     lastName <- o .:? "last_name"
     id <- o .: "id"
+    isBot <- o .: "is_bot"
+    let kind = if isBot then Bot else Human
     return TgUser{..}
 
 
