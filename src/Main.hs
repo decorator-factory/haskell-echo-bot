@@ -75,7 +75,7 @@ applyUpdates updates state = foldr applyUpdate state updates
 applyUpdate :: TgUpdate -> BotState -> BotState
 applyUpdate TgUpdate{updateId} state@BotState{latestUpdateId} =
   state
-    { latestUpdateId = max updateId (latestUpdateId + 1)
+    { latestUpdateId = max (updateId + 1) latestUpdateId
     }
 
 
