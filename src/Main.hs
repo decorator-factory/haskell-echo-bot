@@ -24,7 +24,7 @@ import Data.Maybe (mapMaybe)
 import Data.Foldable (Foldable(toList))
 import System.Environment (lookupEnv)
 import System.IO (hGetContents, IOMode(ReadMode), withFile)
-import Data.Aeson.Types (parseMaybe)
+import Data.Aeson.Types (parseFail, Parser, parseMaybe)
 
 
 -- Request building stuff
@@ -64,8 +64,9 @@ data TgUpdate = TgUpdate
 data TgMessage = TgMessage
   { author :: TgUser
   , text :: Maybe T.Text
+  , chat :: TgChat
   }
-  deriving (Show, Eq)
+  deriving Show
 
 
 data TgUserKind = Human | Bot
@@ -74,22 +75,72 @@ data TgUserKind = Human | Bot
 
 data TgUser = TgUser
   { username :: Maybe T.Text
-  , firstName :: T.Text
-  , lastName :: Maybe T.Text
+  , userFirstName :: T.Text
+  , userLastName :: Maybe T.Text
   , userId :: Integer
-  , kind :: TgUserKind
+  , userKind :: TgUserKind
   }
   deriving (Show, Eq)
+
+
+data TgChat = TgChat
+  { chatId :: Integer
+  , chatUsername :: Maybe T.Text
+  , chatInfo :: TgChatInfo
+  }
+  deriving Show
+
+
+data TgChatInfo
+  = TgPrivateChat
+    { chatFirstName :: T.Text
+    , chatLastName :: Maybe T.Text
+    }
+  | TgGroup
+    { groupTitle :: T.Text
+    }
+  deriving Show
+
+
+parsePrivateChatInfo :: Object -> Parser TgChatInfo
+parsePrivateChatInfo o = do
+  chatFirstName <- o .: "first_name"
+  chatLastName <- o .:? "last_name"
+  return TgPrivateChat{..}
+
+
+parseGroupInfo :: Object  -> Parser TgChatInfo
+parseGroupInfo o = do
+  groupTitle <- o .: "title"
+  return TgGroup{..}
+
+
+instance FromJSON TgChatInfo where
+  parseJSON = withObject "TgChatInfo" $ \o -> do
+    chatType :: String <- o .: "type"
+    case chatType of
+      "group" -> parseGroupInfo o
+      "supergroup" -> parseGroupInfo o
+      "private" -> parsePrivateChatInfo o
+      _ -> parseFail $ "Unsupported chat type: " ++ chatType
+
+
+instance FromJSON TgChat where
+  parseJSON = withObject "TgChat" $ \o -> do
+    chatId <- o .: "id"
+    chatUsername <- o .:? "username"
+    chatInfo <- parseJSON $ Object o
+    return TgChat{..}
 
 
 instance FromJSON TgUser where
   parseJSON = withObject "TgUser" $ \o -> do
     username <- o .:? "username"
-    firstName <- o .: "first_name"
-    lastName <- o .:? "last_name"
+    userFirstName <- o .: "first_name"
+    userLastName <- o .:? "last_name"
     userId <- o .: "id"
     isBot <- o .: "is_bot"
-    let kind = if isBot then Bot else Human
+    let userKind = if isBot then Bot else Human
     return TgUser{..}
 
 
@@ -97,6 +148,7 @@ instance FromJSON TgMessage where
   parseJSON = withObject "TgMessage" $ \o -> do
     author <- o .: "from"
     text <- o .:? "text"
+    chat <- o .: "chat"
     return TgMessage{..}
 
 
@@ -117,11 +169,11 @@ applyUpdates2 updates state = foldr applyUpdate2 ([], state) updates
 
 applyUpdate2 :: TgUpdate -> ([Action], BotState) -> ([Action], BotState)
 applyUpdate2
-  TgUpdate{updateId, message=TgMessage{text, author=TgUser{userId}}}
+  TgUpdate{updateId, message=TgMessage{text, chat}}
   (actions, state@BotState{latestUpdateId}) =
     let newState = state { latestUpdateId = max (updateId + 1) latestUpdateId }
         newActions = case text of
-            Just text -> [ SendMessage userId text ]
+            Just text -> [ SendMessage (chatId chat) text ]
             Nothing -> []
     in (newActions ++ actions, newState)
 
@@ -139,7 +191,11 @@ parseUpdate = parseMaybe parseJSON
 -- Bot state stuff:
 
 data Action
-  = SendMessage { sendChatId :: Integer, messageToSend :: T.Text }
+  = SendMessage
+    { sendChatId :: Integer
+    , messageToSend :: T.Text
+    }
+    deriving Show
 
 
 performAction :: Config -> Action -> IO ()
@@ -193,11 +249,15 @@ pollForever config state = do
         updateJsons <- preview (key "result" . _Array) json
         return $ mapMaybe parseUpdate $ toList updateJsons
 
+  print updatesM
+
   let (actions, newState) = case updatesM of
         Just updates -> applyUpdates2 updates state
         Nothing -> ([], state)
 
   performActions config actions
+
+  print actions
 
   threadDelay 500000
   pollForever config newState
