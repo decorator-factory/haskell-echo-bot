@@ -245,18 +245,24 @@ applyUpdate update (actions, state) =
   in (actions ++ newActions, newState)
 
 computeActions :: TgUpdate -> BotState -> ([Action], BotState)
-computeActions
-  TgUpdate{updateId, message=TgMessage{text, chat=TgChat{chatId}, replyId}}
-  state@BotState{latestUpdateId} = do
-    case text of
-      Just text -> tell
+computeActions TgUpdate{updateId, message} state@BotState{latestUpdateId} = do
+    let (actions, newState) = processMessage message state
+    tell actions
+    return $ newState { latestUpdateId = max (updateId + 1) latestUpdateId }
+
+processMessage :: TgMessage -> BotState -> ([Action], BotState)
+processMessage (TgMessage _ TgChat{chatId} replyId (Text text)) state = do
+  tell
         [ SendMessage chatId text replyId
         , Log $ "Sending " <> text <> " to chat " <> T.pack (show chatId)
         ]
-      Nothing -> tell
-        [ Log "Hm, update with no text... how peculiar"
+  return state
+processMessage (TgMessage author chat _ _) state = do
+  tell
+    [ Log $ formatUser author <> " sent an unsupported message in " <> T.pack (show chat)
         ]
-    return $ state { latestUpdateId = max (updateId + 1) latestUpdateId }
+  return state
+
 
 
 parseUpdate :: Value -> Maybe TgUpdate
