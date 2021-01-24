@@ -142,15 +142,14 @@ instance FromJSON TgUser where
 
 data TgChat = TgChat
   { chatId :: Integer
-  , chatUsername :: Maybe T.Text
   , chatInfo :: TgChatInfo
   }
   deriving Show
 
-
 data TgChatInfo
   = TgPrivateChat
-    { firstName :: T.Text
+    { username :: Maybe T.Text
+    , firstName :: T.Text
     , lastName :: Maybe T.Text
     }
   | TgGroup
@@ -160,6 +159,7 @@ data TgChatInfo
 
 parsePrivateChatInfo :: Object -> Parser TgChatInfo
 parsePrivateChatInfo o = do
+  username <- o .:? "username"
   firstName <- o .: "first_name"
   lastName <- o .:? "last_name"
   return TgPrivateChat{..}
@@ -181,7 +181,6 @@ instance FromJSON TgChatInfo where
 instance FromJSON TgChat where
   parseJSON = withObject "TgChat" $ \o -> do
     chatId <- o .: "id"
-    chatUsername <- o .:? "username"
     chatInfo <- parseJSON $ Object o
     return TgChat{..}
 
