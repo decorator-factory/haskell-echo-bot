@@ -2,6 +2,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Main where
 
@@ -20,7 +21,7 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 
 import Data.Aeson.Encode.Pretty ( encodePretty )
-import Data.Maybe (mapMaybe)
+import Data.Maybe (catMaybes, mapMaybe)
 import Data.Foldable (Foldable(toList))
 import System.Environment (lookupEnv)
 import System.IO (hGetContents, IOMode(ReadMode), withFile)
@@ -67,11 +68,11 @@ applyUpdates updates state = foldr applyUpdate ([], state) updates
 
 applyUpdate :: TgUpdate -> ([Action], BotState) -> ([Action], BotState)
 applyUpdate
-  TgUpdate{updateId, message=TgMessage{text, chat}}
+  TgUpdate{updateId, message=TgMessage{text, chat, replyId}}
   (actions, state@BotState{latestUpdateId}) =
     let newState = state { latestUpdateId = max (updateId + 1) latestUpdateId }
         newActions = case text of
-            Just text -> [ SendMessage (chatId chat) text ]
+            Just text -> [ SendMessage (chatId chat) text replyId ]
             Nothing -> []
     in (newActions ++ actions, newState)
 
@@ -85,6 +86,7 @@ data TgMessage = TgMessage
   { author :: TgUser
   , text :: Maybe T.Text
   , chat :: TgChat
+  , replyId :: Maybe Integer
   }
   deriving Show
 
@@ -93,6 +95,10 @@ instance FromJSON TgMessage where
     author <- o .: "from"
     text <- o .:? "text"
     chat <- o .: "chat"
+    replyId <- (o .:? "reply_to_message") >>= (\case
+      Just x -> x .:? "message_id"
+      Nothing -> pure Nothing
+      )
     return TgMessage{..}
 
 
@@ -175,19 +181,26 @@ data Action
   = SendMessage
     { sendChatId :: Integer
     , messageToSend :: T.Text
+    , replyId' :: Maybe Integer
     }
     deriving Show
 
+instance ToJSON Action where
+  toJSON SendMessage{..} = object $
+    [ "chat_id" .= sendChatId
+    , "text"    .= messageToSend
+    ]
+    ++ ifPresent "reply_to_message_id" replyId'
+
+ifPresent :: (ToJSON v, KeyValue kv) => T.Text -> Maybe v -> [kv]
+ifPresent fieldName obj = catMaybes [fmap (fieldName .=) obj]
+
 performAction :: Config -> Action -> IO ()
 performAction
-  Config{botToken}
-  SendMessage{sendChatId, messageToSend} = do
+  Config{botToken} action = do
     queryEndpoint $
       buildPostRequest botToken "sendMessage"
-      & setRequestBodyJSON (object
-        [ "chat_id" .= sendChatId
-        , "text"    .= messageToSend
-        ])
+      & setRequestBodyJSON (toJSON action)
     return ()
 
 performActions :: Config -> [Action] -> IO ()
