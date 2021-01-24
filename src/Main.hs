@@ -27,6 +27,7 @@ import Data.Foldable (Foldable(toList))
 import System.Environment (lookupEnv)
 import System.IO (hGetContents, IOMode(ReadMode), withFile)
 import Data.Aeson.Types (parseFail, Parser, parseMaybe)
+import Control.Monad.Writer.Lazy
 
 
 -- Request building stuff
@@ -48,37 +49,6 @@ queryEndpoint :: Request  -> IO Value
 queryEndpoint req = do
   res <- httpJSON req
   return $ getResponseBody res
-
-
--- Update type:
-
-data TgUpdate = TgUpdate
-  { updateId :: Integer
-  , message :: TgMessage
-  }
-  deriving Show
-
-instance FromJSON TgUpdate where
-  parseJSON = withObject "TgUpdate" $ \o -> do
-    updateId <- o .: "update_id"
-    message <- o .: "message"
-    return TgUpdate{..}
-
-applyUpdates :: [TgUpdate] -> BotState -> ([Action], BotState)
-applyUpdates updates state = foldr applyUpdate ([], state) updates
-
-applyUpdate :: TgUpdate -> ([Action], BotState) -> ([Action], BotState)
-applyUpdate
-  TgUpdate{updateId, message=TgMessage{text, chat, replyId}}
-  (actions, state@BotState{latestUpdateId}) =
-    let newState = state { latestUpdateId = max (updateId + 1) latestUpdateId }
-        newActions = case text of
-            Just text -> [ SendMessage (chatId chat) text replyId ]
-            Nothing -> []
-    in (newActions ++ actions, newState)
-
-parseUpdate :: Value -> Maybe TgUpdate
-parseUpdate = parseMaybe parseJSON
 
 
 -- Message type:
@@ -184,28 +154,74 @@ data Action
     , messageText :: T.Text
     , replyId :: Maybe Integer
     }
+  | Log T.Text
     deriving Show
 
-instance ToJSON Action where
-  toJSON SendMessage{sendChatId, messageText, replyId} = object $
+ifPresent :: (ToJSON v, KeyValue kv) => T.Text -> Maybe v -> [kv]
+ifPresent fieldName obj = catMaybes [fmap (fieldName .=) obj]
+
+sendMessageJson :: Integer -> T.Text -> Maybe Integer -> Value
+sendMessageJson sendChatId messageText replyId = object $
     [ "chat_id" .= sendChatId
     , "text"    .= messageText
     ]
     ++ ifPresent "reply_to_message_id" replyId
 
-ifPresent :: (ToJSON v, KeyValue kv) => T.Text -> Maybe v -> [kv]
-ifPresent fieldName obj = catMaybes [fmap (fieldName .=) obj]
-
 performAction :: Config -> Action -> IO ()
 performAction
-  Config{botToken} action = do
+  Config{botToken} SendMessage{..} = do
     queryEndpoint $
       buildPostRequest botToken "sendMessage"
-      & setRequestBodyJSON (toJSON action)
+      & setRequestBodyJSON (sendMessageJson sendChatId messageText replyId)
     return ()
+
+performAction
+  Config{botToken} (Log text) = do
+    TIO.putStrLn $ "LOG | " <> text
 
 performActions :: Config -> [Action] -> IO ()
 performActions config = mapM_ (performAction config)
+
+
+-- Update type:
+
+data TgUpdate = TgUpdate
+  { updateId :: Integer
+  , message :: TgMessage
+  }
+  deriving Show
+
+instance FromJSON TgUpdate where
+  parseJSON = withObject "TgUpdate" $ \o -> do
+    updateId <- o .: "update_id"
+    message <- o .: "message"
+    return TgUpdate{..}
+
+applyUpdates :: [TgUpdate] -> BotState -> ([Action], BotState)
+applyUpdates updates state = foldr applyUpdate ([], state) updates
+
+applyUpdate :: TgUpdate -> ([Action], BotState) -> ([Action], BotState)
+applyUpdate update (actions, state) =
+  let (newActions, newState) =  computeActions update state
+  in (actions ++ newActions, newState)
+
+computeActions :: TgUpdate -> BotState -> ([Action], BotState)
+computeActions
+  TgUpdate{updateId, message=TgMessage{text, chat=TgChat{chatId}, replyId}}
+  state@BotState{latestUpdateId} = do
+    case text of
+      Just text -> tell
+        [ SendMessage chatId text replyId
+        , Log $ "Sending " <> text <> " to chat " <> T.pack (show chatId)
+        ]
+      Nothing -> tell
+        [ Log "Hm, update with no text... how peculiar"
+        ]
+    return $ state { latestUpdateId = max (updateId + 1) latestUpdateId }
+
+
+parseUpdate :: Value -> Maybe TgUpdate
+parseUpdate = parseMaybe parseJSON
 
 
 -- Bot state:

@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 819b3de4d9259ddb24cc3850409f7d41687083bac1f2cc40be65fd7a9516ca7f
+-- hash: d40192bdc995c41fb507db396720a8fdeff45e9e83891f4d02b56bb74ddef0d9
 
 name:           echo-bot
 version:        0.1.0.0
@@ -33,5 +33,6 @@ executable echo-bot
     , http-conduit
     , lens
     , lens-aeson
+    , mtl
     , text
   default-language: Haskell2010

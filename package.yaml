@@ -20,6 +20,7 @@ dependencies:
   - bytestring
   - text
   - http-conduit
+  - mtl
 
 executables:
   echo-bot:
