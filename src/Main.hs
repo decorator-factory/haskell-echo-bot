@@ -194,25 +194,41 @@ data Action
     , messageText :: T.Text
     , replyId :: Maybe Integer
     }
+  | SendSticker
+    { sendChatId :: Integer
+    , fileId :: T.Text
+    , replyId :: Maybe Integer
+    }
   | Log T.Text
     deriving Show
 
 ifPresent :: (ToJSON v, KeyValue kv) => T.Text -> Maybe v -> [kv]
 ifPresent fieldName obj = catMaybes [fmap (fieldName .=) obj]
 
-sendMessageJson :: Integer -> T.Text -> Maybe Integer -> Value
-sendMessageJson sendChatId messageText replyId = object $
-    [ "chat_id" .= sendChatId
-    , "text"    .= messageText
-    ]
-    ++ ifPresent "reply_to_message_id" replyId
 
 performAction :: Config -> Action -> IO ()
 performAction
   Config{botToken} SendMessage{..} = do
+    let json = object $
+          [ "chat_id" .= sendChatId
+          , "text"    .= messageText
+          ]
+          ++ ifPresent "reply_to_message_id" replyId
     queryEndpoint $
       buildPostRequest botToken "sendMessage"
-      & setRequestBodyJSON (sendMessageJson sendChatId messageText replyId)
+      & setRequestBodyJSON json
+    return ()
+
+performAction
+  Config{botToken} SendSticker{..} = do
+    let json = object $
+          [ "chat_id" .= sendChatId
+          , "sticker" .= fileId
+          ]
+          ++ ifPresent "reply_to_message_id" replyId
+    queryEndpoint $
+      buildPostRequest botToken "sendSticker"
+      & setRequestBodyJSON json
     return ()
 
 performAction
@@ -258,6 +274,14 @@ processMessage (TgMessage _ TgChat{chatId} replyId (Text text)) state = do
     , Log $ "Sending " <> text <> " to chat " <> T.pack (show chatId)
     ]
   return state
+
+processMessage (TgMessage _ TgChat{chatId} replyId (Sticker fileId)) state = do
+  tell
+    [ SendSticker chatId fileId replyId
+    , Log $ "Sending a sticker back to chat " <> T.pack (show chatId)
+    ]
+  return state
+
 processMessage (TgMessage author chat _ _) state = do
   tell
     [ Log $ formatUser author <> " sent an unsupported message in " <> T.pack (show chat)
