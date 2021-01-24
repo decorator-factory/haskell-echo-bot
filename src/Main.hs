@@ -55,11 +55,18 @@ queryEndpoint req = do
 
 data TgMessage = TgMessage
   { author :: TgUser
-  , text :: Maybe T.Text
   , chat :: TgChat
   , replyId :: Maybe Integer
+  , content :: TgMessageContent
   }
   deriving Show
+
+data TgMessageContent
+  = Text T.Text
+  | Sticker { fileId :: T.Text }
+  | Other
+  deriving Show
+
 
 instance FromJSON TgMessage where
   parseJSON = withObject "TgMessage" $ \o -> do
