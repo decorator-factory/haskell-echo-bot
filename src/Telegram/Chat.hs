@@ -27,14 +27,14 @@ parseTgChatInfo o = do
     "private" -> parsePrivateChatInfo o
     _ -> parseFail $ "Unsupported chat type: " ++ chatType
   where
-    parsePrivateChatInfo o = do
-      username <- o .:? "username"
-      firstName <- o .: "first_name"
-      lastName <- o .:? "last_name"
+    parsePrivateChatInfo o' = do
+      username <- o' .:? "username"
+      firstName <- o' .: "first_name"
+      lastName <- o' .:? "last_name"
       return PrivateChat{..}
 
-    parseGroupInfo o = do
-      title <- o .: "title"
+    parseGroupInfo o' = do
+      title <- o' .: "title"
       return Group{..}
 
 

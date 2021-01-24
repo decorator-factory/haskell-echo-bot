@@ -6,7 +6,7 @@
 
 module Main where
 
-import Network.HTTP.Simple (setRequestBodyJSON, httpJSON, getResponseBody, Request, Query, addToRequestQueryString)
+import Network.HTTP.Simple (setRequestBodyJSON, httpJSON, getResponseBody, Request, addToRequestQueryString)
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy.Char8 as LBS
 import Data.Function ( (&) )
@@ -15,19 +15,17 @@ import Data.String ( IsString(..) )
 import Control.Concurrent (threadDelay)
 
 import Control.Lens ( preview )
-import Data.Aeson.Lens ( key, _String, _Integer, _Array )
-import Data.Aeson
+import Data.Aeson.Lens ( key, _Array )
+import Data.Aeson hiding ( json )
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 
 import Data.Aeson.Encode.Pretty ( encodePretty )
-import Data.Maybe (maybeToList, fromMaybe, catMaybes, mapMaybe)
+import Data.Maybe (maybeToList, mapMaybe)
 import Data.Foldable (Foldable(toList))
 import System.Environment (lookupEnv)
-import System.IO (hGetContents, IOMode(ReadMode), withFile)
-import Data.Aeson.Types (parseFail, Parser, parseMaybe)
+import Data.Aeson.Types (parseMaybe)
 import Control.Monad.Writer.Lazy
-import Control.Applicative (Alternative((<|>)))
 
 import qualified Telegram.User as TgUser
 import qualified Telegram.Message as TgMessage
@@ -82,7 +80,7 @@ performAction
           , "text"    .= messageText
           ]
           ++ ifPresent "reply_to_message_id" replyId
-    queryEndpoint $
+    _ <- queryEndpoint $
       buildPostRequest botToken "sendMessage"
       & setRequestBodyJSON json
     return ()
@@ -94,13 +92,13 @@ performAction
           , "sticker" .= fileId
           ]
           ++ ifPresent "reply_to_message_id" replyId
-    queryEndpoint $
+    _ <- queryEndpoint $
       buildPostRequest botToken "sendSticker"
       & setRequestBodyJSON json
     return ()
 
 performAction
-  Config{botToken} (Log text) = do
+  Config{} (Log text) = do
     TIO.putStrLn $ "LOG | " <> text
 
 performActions :: Config -> [Action] -> IO ()

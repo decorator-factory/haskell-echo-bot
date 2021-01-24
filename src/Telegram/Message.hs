@@ -19,12 +19,12 @@ data MessageContent
 
 parseMessageContent :: Object -> Parser MessageContent
 parseMessageContent o = parseTextContent o <|> parseStickerContent o <|> parseOtherContent o where
-  parseTextContent o = do
-    text <- o .: "text"
+  parseTextContent o' = do
+    text <- o' .: "text"
     return $ Text text
 
-  parseStickerContent o = do
-    sticker <- o .: "sticker"
+  parseStickerContent o' = do
+    sticker <- o' .: "sticker"
     fileId <- sticker .: "file_id"
     return $ Sticker{..}
 
