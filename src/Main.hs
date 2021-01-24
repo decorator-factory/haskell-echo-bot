@@ -22,7 +22,7 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 
 import Data.Aeson.Encode.Pretty ( encodePretty )
-import Data.Maybe (fromMaybe, catMaybes, mapMaybe)
+import Data.Maybe (maybeToList, fromMaybe, catMaybes, mapMaybe)
 import Data.Foldable (Foldable(toList))
 import System.Environment (lookupEnv)
 import System.IO (hGetContents, IOMode(ReadMode), withFile)
@@ -52,7 +52,30 @@ queryEndpoint req = do
   return $ getResponseBody res
 
 
--- Message type:
+
+-- Message content type
+
+data TgMessageContent
+  = Text T.Text
+  | Sticker { fileId :: T.Text }
+  | Other
+  deriving Show
+
+parseMessageContent :: Object -> Parser TgMessageContent
+parseMessageContent o = parseTextContent o <|> parseStickerContent o <|> parseOtherContent o where
+  parseTextContent o = do
+    text <- o .: "text"
+    return $ Text text
+
+  parseStickerContent o = do
+    sticker <- o .: "sticker"
+    fileId <- sticker .: "file_id"
+    return $ Sticker{..}
+
+  parseOtherContent _ = pure Other
+
+
+-- Message type
 
 data TgMessage = TgMessage
   { author :: TgUser
@@ -62,43 +85,12 @@ data TgMessage = TgMessage
   }
   deriving Show
 
-data TgMessageContent
-  = Text T.Text
-  | Sticker { fileId :: T.Text }
-  | Other
-  deriving Show
-
-
-parseTextContent :: Object -> Parser TgMessageContent
-parseTextContent o = do
-  text <- o .: "text"
-  return $ Text text
-
-
-parseStickerContent :: Object -> Parser TgMessageContent
-parseStickerContent o = do
-  sticker <- o .: "sticker"
-  fileId <- sticker .: "file_id"
-  return $ Sticker{..}
-
-
-parseOtherContent :: Object -> Parser TgMessageContent
-parseOtherContent _ = pure Other
-
-
-parseMessageContent :: Object -> Parser TgMessageContent
-parseMessageContent o = parseTextContent o <|> parseStickerContent o <|> parseOtherContent o
-
-
 instance FromJSON TgMessage where
   parseJSON = withObject "TgMessage" $ \o -> do
     author <- o .: "from"
     content <- parseMessageContent o
     chat <- o .: "chat"
-    replyId <- (o .:? "reply_to_message") >>= (\case
-      Just x -> x .:? "message_id"
-      Nothing -> pure Nothing
-      )
+    replyId <- (o .:? "reply_to_message") >>= maybe (pure Nothing) (.:? "message_id")
     return TgMessage{..}
 
 
@@ -139,13 +131,7 @@ instance FromJSON TgUser where
     return TgUser{..}
 
 
--- Chat types:
-
-data TgChat = TgChat
-  { chatId :: Integer
-  , chatInfo :: TgChatInfo
-  }
-  deriving Show
+-- Chat info type:
 
 data TgChatInfo
   = TgPrivateChat
@@ -158,31 +144,38 @@ data TgChatInfo
     }
   deriving Show
 
-parsePrivateChatInfo :: Object -> Parser TgChatInfo
-parsePrivateChatInfo o = do
-  username <- o .:? "username"
-  firstName <- o .: "first_name"
-  lastName <- o .:? "last_name"
-  return TgPrivateChat{..}
+parseTgChatInfo :: Object -> Parser TgChatInfo
+parseTgChatInfo o = do
+  chatType :: String <- o .: "type"
+  case chatType of
+    "group" -> parseGroupInfo o
+    "supergroup" -> parseGroupInfo o
+    "private" -> parsePrivateChatInfo o
+    _ -> parseFail $ "Unsupported chat type: " ++ chatType
+  where
+    parsePrivateChatInfo o = do
+      username <- o .:? "username"
+      firstName <- o .: "first_name"
+      lastName <- o .:? "last_name"
+      return TgPrivateChat{..}
 
-parseGroupInfo :: Object  -> Parser TgChatInfo
-parseGroupInfo o = do
-  title <- o .: "title"
-  return TgGroup{..}
+    parseGroupInfo o = do
+      title <- o .: "title"
+      return TgGroup{..}
 
-instance FromJSON TgChatInfo where
-  parseJSON = withObject "TgChatInfo" $ \o -> do
-    chatType :: String <- o .: "type"
-    case chatType of
-      "group" -> parseGroupInfo o
-      "supergroup" -> parseGroupInfo o
-      "private" -> parsePrivateChatInfo o
-      _ -> parseFail $ "Unsupported chat type: " ++ chatType
+
+-- Chat type:
+
+data TgChat = TgChat
+  { chatId :: Integer
+  , chatInfo :: TgChatInfo
+  }
+  deriving Show
 
 instance FromJSON TgChat where
   parseJSON = withObject "TgChat" $ \o -> do
     chatId <- o .: "id"
-    chatInfo <- parseJSON $ Object o
+    chatInfo <- parseTgChatInfo o
     return TgChat{..}
 
 
@@ -203,8 +196,7 @@ data Action
     deriving Show
 
 ifPresent :: (ToJSON v, KeyValue kv) => T.Text -> Maybe v -> [kv]
-ifPresent fieldName obj = catMaybes [fmap (fieldName .=) obj]
-
+ifPresent fieldName = maybeToList . fmap (fieldName .=)
 
 performAction :: Config -> Action -> IO ()
 performAction
@@ -253,6 +245,12 @@ instance FromJSON TgUpdate where
     message <- o .: "message"
     return TgUpdate{..}
 
+parseUpdate :: Value -> Maybe TgUpdate
+parseUpdate = parseMaybe parseJSON
+
+
+-- Update logic
+
 applyUpdates :: [TgUpdate] -> BotState -> ([Action], BotState)
 applyUpdates updates state = foldr applyUpdate ([], state) updates
 
@@ -287,11 +285,6 @@ processMessage (TgMessage author chat _ _) state = do
     [ Log $ formatUser author <> " sent an unsupported message in " <> T.pack (show chat)
     ]
   return state
-
-
-
-parseUpdate :: Value -> Maybe TgUpdate
-parseUpdate = parseMaybe parseJSON
 
 
 -- Bot state:
