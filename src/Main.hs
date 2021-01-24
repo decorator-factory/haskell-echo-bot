@@ -2,7 +2,6 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE DuplicateRecordFields #-}
 
 module Main where
@@ -29,6 +28,8 @@ import System.IO (hGetContents, IOMode(ReadMode), withFile)
 import Data.Aeson.Types (parseFail, Parser, parseMaybe)
 import Control.Monad.Writer.Lazy
 import Control.Applicative (Alternative((<|>)))
+
+import qualified Telegram.User as TgUser
 
 
 -- Request building stuff
@@ -78,7 +79,7 @@ parseMessageContent o = parseTextContent o <|> parseStickerContent o <|> parseOt
 -- Message type
 
 data TgMessage = TgMessage
-  { author :: TgUser
+  { author :: TgUser.User
   , chat :: TgChat
   , replyId :: Maybe Integer
   , content :: TgMessageContent
@@ -92,43 +93,6 @@ instance FromJSON TgMessage where
     chat <- o .: "chat"
     replyId <- (o .:? "reply_to_message") >>= maybe (pure Nothing) (.:? "message_id")
     return TgMessage{..}
-
-
--- User type:
-
-data TgUserKind = Human | Bot
-  deriving (Show, Eq, Ord)
-
-data TgUser = TgUser
-  { username :: Maybe T.Text
-  , userFirstName :: T.Text
-  , userLastName :: Maybe T.Text
-  , userId :: Integer
-  , userKind :: TgUserKind
-  }
-  deriving (Show, Eq)
-
-formatUser :: TgUser -> T.Text
-formatUser TgUser{..} = mconcat
-  [ T.pack $ show userKind
-  , " "
-  , fromMaybe "(no username)" username
-  , "#" <> T.pack (show userId)
-  , " "
-  , userFirstName
-  , maybe "" (" " <>) userLastName
-  ]
-
-
-instance FromJSON TgUser where
-  parseJSON = withObject "TgUser" $ \o -> do
-    username <- o .:? "username"
-    userFirstName <- o .: "first_name"
-    userLastName <- o .:? "last_name"
-    userId <- o .: "id"
-    isBot <- o .: "is_bot"
-    let userKind = if isBot then Bot else Human
-    return TgUser{..}
 
 
 -- Chat info type:
@@ -282,7 +246,7 @@ processMessage (TgMessage _ TgChat{chatId} replyId (Sticker fileId)) state = do
 
 processMessage (TgMessage author chat _ _) state = do
   tell
-    [ Log $ formatUser author <> " sent an unsupported message in " <> T.pack (show chat)
+    [ Log $ TgUser.format author <> " sent an unsupported message in " <> T.pack (show chat)
     ]
   return state
 
