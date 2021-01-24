@@ -30,6 +30,7 @@ import Control.Monad.Writer.Lazy
 import Control.Applicative (Alternative((<|>)))
 
 import qualified Telegram.User as TgUser
+import qualified Telegram.Message as TgMessage
 import qualified Telegram.Chat as TgChat
 
 
@@ -110,7 +111,7 @@ performActions config = mapM_ (performAction config)
 
 data TgUpdate = TgUpdate
   { updateId :: Integer
-  , message :: TgMessage
+  , message :: TgMessage.Message
   }
   deriving Show
 
@@ -140,22 +141,22 @@ computeActions TgUpdate{updateId, message} state@BotState{latestUpdateId} = do
     tell actions
     return $ newState { latestUpdateId = max (updateId + 1) latestUpdateId }
 
-processMessage :: TgMessage -> BotState -> ([Action], BotState)
-processMessage (TgMessage _ TgChat{chatId} replyId (Text text)) state = do
+processMessage :: TgMessage.Message  -> BotState -> ([Action], BotState)
+processMessage (TgMessage.Message _ TgChat.Chat{chatId} replyId (TgMessage.Text text)) state = do
   tell
     [ SendMessage chatId text replyId
     , Log $ "Sending " <> text <> " to chat " <> T.pack (show chatId)
     ]
   return state
 
-processMessage (TgMessage _ TgChat{chatId} replyId (Sticker fileId)) state = do
+processMessage (TgMessage.Message _ TgChat.Chat{chatId} replyId (TgMessage.Sticker fileId)) state = do
   tell
     [ SendSticker chatId fileId replyId
     , Log $ "Sending a sticker back to chat " <> T.pack (show chatId)
     ]
   return state
 
-processMessage (TgMessage author chat _ _) state = do
+processMessage (TgMessage.Message author chat _ _) state = do
   tell
     [ Log $ TgUser.format author <> " sent an unsupported message in " <> T.pack (show chat)
     ]
