@@ -22,12 +22,13 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 
 import Data.Aeson.Encode.Pretty ( encodePretty )
-import Data.Maybe (catMaybes, mapMaybe)
+import Data.Maybe (fromMaybe, catMaybes, mapMaybe)
 import Data.Foldable (Foldable(toList))
 import System.Environment (lookupEnv)
 import System.IO (hGetContents, IOMode(ReadMode), withFile)
 import Data.Aeson.Types (parseFail, Parser, parseMaybe)
 import Control.Monad.Writer.Lazy
+import Control.Applicative (Alternative((<|>)))
 
 
 -- Request building stuff
@@ -253,14 +254,14 @@ computeActions TgUpdate{updateId, message} state@BotState{latestUpdateId} = do
 processMessage :: TgMessage -> BotState -> ([Action], BotState)
 processMessage (TgMessage _ TgChat{chatId} replyId (Text text)) state = do
   tell
-        [ SendMessage chatId text replyId
-        , Log $ "Sending " <> text <> " to chat " <> T.pack (show chatId)
-        ]
+    [ SendMessage chatId text replyId
+    , Log $ "Sending " <> text <> " to chat " <> T.pack (show chatId)
+    ]
   return state
 processMessage (TgMessage author chat _ _) state = do
   tell
     [ Log $ formatUser author <> " sent an unsupported message in " <> T.pack (show chat)
-        ]
+    ]
   return state
 
 
