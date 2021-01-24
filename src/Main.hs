@@ -115,6 +115,18 @@ data TgUser = TgUser
   }
   deriving (Show, Eq)
 
+formatUser :: TgUser -> T.Text
+formatUser TgUser{..} = mconcat
+  [ T.pack $ show userKind
+  , " "
+  , fromMaybe "(no username)" username
+  , "#" <> T.pack (show userId)
+  , " "
+  , userFirstName
+  , maybe "" (" " <>) userLastName
+  ]
+
+
 instance FromJSON TgUser where
   parseJSON = withObject "TgUser" $ \o -> do
     username <- o .:? "username"
