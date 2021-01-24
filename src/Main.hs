@@ -68,10 +68,31 @@ data TgMessageContent
   deriving Show
 
 
+parseTextContent :: Object -> Parser TgMessageContent
+parseTextContent o = do
+  text <- o .: "text"
+  return $ Text text
+
+
+parseStickerContent :: Object -> Parser TgMessageContent
+parseStickerContent o = do
+  sticker <- o .: "sticker"
+  fileId <- sticker .: "file_id"
+  return $ Sticker{..}
+
+
+parseOtherContent :: Object -> Parser TgMessageContent
+parseOtherContent _ = pure Other
+
+
+parseMessageContent :: Object -> Parser TgMessageContent
+parseMessageContent o = parseTextContent o <|> parseStickerContent o <|> parseOtherContent o
+
+
 instance FromJSON TgMessage where
   parseJSON = withObject "TgMessage" $ \o -> do
     author <- o .: "from"
-    text <- o .:? "text"
+    content <- parseMessageContent o
     chat <- o .: "chat"
     replyId <- (o .:? "reply_to_message") >>= (\case
       Just x -> x .:? "message_id"
