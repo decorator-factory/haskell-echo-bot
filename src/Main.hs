@@ -3,6 +3,7 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE DuplicateRecordFields #-}
 
 module Main where
 
@@ -139,23 +140,23 @@ data TgChat = TgChat
 
 data TgChatInfo
   = TgPrivateChat
-    { chatFirstName :: T.Text
-    , chatLastName :: Maybe T.Text
+    { firstName :: T.Text
+    , lastName :: Maybe T.Text
     }
   | TgGroup
-    { groupTitle :: T.Text
+    { title :: T.Text
     }
   deriving Show
 
 parsePrivateChatInfo :: Object -> Parser TgChatInfo
 parsePrivateChatInfo o = do
-  chatFirstName <- o .: "first_name"
-  chatLastName <- o .:? "last_name"
+  firstName <- o .: "first_name"
+  lastName <- o .:? "last_name"
   return TgPrivateChat{..}
 
 parseGroupInfo :: Object  -> Parser TgChatInfo
 parseGroupInfo o = do
-  groupTitle <- o .: "title"
+  title <- o .: "title"
   return TgGroup{..}
 
 instance FromJSON TgChatInfo where
@@ -180,17 +181,17 @@ instance FromJSON TgChat where
 data Action
   = SendMessage
     { sendChatId :: Integer
-    , messageToSend :: T.Text
-    , replyId' :: Maybe Integer
+    , messageText :: T.Text
+    , replyId :: Maybe Integer
     }
     deriving Show
 
 instance ToJSON Action where
-  toJSON SendMessage{..} = object $
+  toJSON SendMessage{sendChatId, messageText, replyId} = object $
     [ "chat_id" .= sendChatId
-    , "text"    .= messageToSend
+    , "text"    .= messageText
     ]
-    ++ ifPresent "reply_to_message_id" replyId'
+    ++ ifPresent "reply_to_message_id" replyId
 
 ifPresent :: (ToJSON v, KeyValue kv) => T.Text -> Maybe v -> [kv]
 ifPresent fieldName obj = catMaybes [fmap (fieldName .=) obj]
