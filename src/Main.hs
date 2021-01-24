@@ -5,7 +5,7 @@
 
 module Main where
 
-import Network.HTTP.Simple (httpJSON, getResponseBody, Request, Query, addToRequestQueryString)
+import Network.HTTP.Simple (setRequestBodyJSON, httpJSON, getResponseBody, Request, Query, addToRequestQueryString)
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy.Char8 as LBS
 import Data.Function ( (&) )
@@ -183,9 +183,11 @@ performAction
   Config{botToken}
   SendMessage{sendChatId, messageToSend} = do
     queryEndpoint $
-      buildGetRequest botToken "sendMessage"
-      & withParam "chat_id" (show sendChatId)
-      & withParam "text" (T.unpack messageToSend)
+      buildPostRequest botToken "sendMessage"
+      & setRequestBodyJSON (object
+        [ "chat_id" .= sendChatId
+        , "text"    .= messageToSend
+        ])
     return ()
 
 performActions :: Config -> [Action] -> IO ()
