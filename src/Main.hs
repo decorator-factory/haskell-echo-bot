@@ -30,6 +30,7 @@ import Control.Monad.Writer.Lazy
 import Control.Applicative (Alternative((<|>)))
 
 import qualified Telegram.User as TgUser
+import qualified Telegram.Chat as TgChat
 
 
 -- Request building stuff
@@ -51,96 +52,6 @@ queryEndpoint :: Request  -> IO Value
 queryEndpoint req = do
   res <- httpJSON req
   return $ getResponseBody res
-
-
-
--- Message content type
-
-data TgMessageContent
-  = Text T.Text
-  | Sticker { fileId :: T.Text }
-  | Other
-  deriving Show
-
-parseMessageContent :: Object -> Parser TgMessageContent
-parseMessageContent o = parseTextContent o <|> parseStickerContent o <|> parseOtherContent o where
-  parseTextContent o = do
-    text <- o .: "text"
-    return $ Text text
-
-  parseStickerContent o = do
-    sticker <- o .: "sticker"
-    fileId <- sticker .: "file_id"
-    return $ Sticker{..}
-
-  parseOtherContent _ = pure Other
-
-
--- Message type
-
-data TgMessage = TgMessage
-  { author :: TgUser.User
-  , chat :: TgChat
-  , replyId :: Maybe Integer
-  , content :: TgMessageContent
-  }
-  deriving Show
-
-instance FromJSON TgMessage where
-  parseJSON = withObject "TgMessage" $ \o -> do
-    author <- o .: "from"
-    content <- parseMessageContent o
-    chat <- o .: "chat"
-    replyId <- (o .:? "reply_to_message") >>= maybe (pure Nothing) (.:? "message_id")
-    return TgMessage{..}
-
-
--- Chat info type:
-
-data TgChatInfo
-  = TgPrivateChat
-    { username :: Maybe T.Text
-    , firstName :: T.Text
-    , lastName :: Maybe T.Text
-    }
-  | TgGroup
-    { title :: T.Text
-    }
-  deriving Show
-
-parseTgChatInfo :: Object -> Parser TgChatInfo
-parseTgChatInfo o = do
-  chatType :: String <- o .: "type"
-  case chatType of
-    "group" -> parseGroupInfo o
-    "supergroup" -> parseGroupInfo o
-    "private" -> parsePrivateChatInfo o
-    _ -> parseFail $ "Unsupported chat type: " ++ chatType
-  where
-    parsePrivateChatInfo o = do
-      username <- o .:? "username"
-      firstName <- o .: "first_name"
-      lastName <- o .:? "last_name"
-      return TgPrivateChat{..}
-
-    parseGroupInfo o = do
-      title <- o .: "title"
-      return TgGroup{..}
-
-
--- Chat type:
-
-data TgChat = TgChat
-  { chatId :: Integer
-  , chatInfo :: TgChatInfo
-  }
-  deriving Show
-
-instance FromJSON TgChat where
-  parseJSON = withObject "TgChat" $ \o -> do
-    chatId <- o .: "id"
-    chatInfo <- parseTgChatInfo o
-    return TgChat{..}
 
 
 -- Actions:
