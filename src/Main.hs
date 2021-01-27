@@ -31,6 +31,7 @@ import qualified Telegram.User as TgUser
 import qualified Telegram.Message as TgMessage
 import qualified Telegram.Chat as TgChat
 
+import qualified Commands
 
 -- Request building stuff
 
@@ -141,10 +142,22 @@ computeActions TgUpdate{updateId, message} state@BotState{latestUpdateId} = do
 
 processMessage :: TgMessage.Message  -> BotState -> ([Action], BotState)
 processMessage (TgMessage.Message _ TgChat.Chat{chatId} replyId (TgMessage.Text text)) state = do
-  tell
-    [ SendMessage chatId text replyId
-    , Log $ "Sending " <> text <> " to chat " <> T.pack (show chatId)
-    ]
+  let foo = Commands.executeCommand "/" text
+  tell $ case foo of
+    Left Commands.NotACommand ->
+      [ SendMessage chatId text replyId
+      , Log $ "Sending " <> text <> " to chat " <> T.pack (show chatId)
+      ]
+    Left (Commands.CommandNotFound cmd) ->
+      [ SendMessage chatId ("⚠️ Command not found: " <> cmd) replyId
+      ]
+    Left (Commands.DomainError e) ->
+      [ SendMessage chatId ("⚠️ " <> e) replyId
+      ]
+    Right outcomes ->
+      [ SendMessage chatId (T.pack $ show outcomes) replyId
+      ]
+
   return state
 
 processMessage (TgMessage.Message _ TgChat.Chat{chatId} replyId (TgMessage.Sticker fileId)) state = do

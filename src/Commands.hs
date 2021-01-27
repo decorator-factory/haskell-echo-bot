@@ -2,7 +2,11 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE NamedFieldPuns #-}
-module Commands ( executeCommand )  where
+module Commands
+  ( executeCommand
+  , Outcome (..)
+  , Error (..)
+  )  where
 
 import qualified Data.Text as T
 import Text.Read ( readMaybe )
