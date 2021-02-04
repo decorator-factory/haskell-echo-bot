@@ -80,6 +80,7 @@ data Action
     { chatId :: Integer
     , newRepeatCount :: Integer
     }
+  | AnswerCallbackQuery T.Text
   | Log T.Text
     deriving Show
 
@@ -151,6 +152,15 @@ performAction
   SetRepeatCount{..} = do
     modify $ \s@BotState{repeatCount} -> s{repeatCount=Map.insert chatId newRepeatCount repeatCount}
 
+performAction
+  (AnswerCallbackQuery cbQueryId) = do
+    Config{botToken} <- ask
+    _ <- liftIO $ queryEndpoint $
+      buildPostRequest botToken "answerCallbackQuery"
+      & setRequestBodyJSON (object ["callback_query_id" .= cbQueryId ])
+    return ()
+
+
 performActions :: [Action] -> App ()
 performActions = mapM_ performAction
 
@@ -169,7 +179,8 @@ data UpdateContent
   deriving Show
 
 data TgCallbackQuery = TgCallbackQuery
-  { cbData :: T.Text
+  { cbId :: T.Text
+  , cbData :: T.Text
   , cbUser :: TgUser.User
   , cbChat :: TgChat.Chat
   }
@@ -177,6 +188,7 @@ data TgCallbackQuery = TgCallbackQuery
 
 instance FromJSON TgCallbackQuery where
   parseJSON = withObject "TgCallbackQuery" $ \o -> do
+    cbId <- o .: "id"
     cbData <- o .: "data"
     m <- o .: "message"
     cbChat <- m .: "chat"
@@ -216,8 +228,8 @@ processContent (Message msg) = processMessage msg
 
 
 processCallbackQuery :: TgCallbackQuery -> App [Action]
-processCallbackQuery TgCallbackQuery{cbData, cbUser, cbChat} = do
-  case T.splitOn " " cbData of
+processCallbackQuery TgCallbackQuery{cbId, cbData, cbUser, cbChat} = do
+  (AnswerCallbackQuery cbId :) <$> case T.splitOn " " cbData of
     (cmd:args) -> processMessage $
       TgMessage.Message cbUser cbChat Nothing
       (TgMessage.Text $ "/" <> cmd <> " " <> T.intercalate " " args)
