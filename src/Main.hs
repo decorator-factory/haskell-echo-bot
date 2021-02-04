@@ -242,10 +242,10 @@ processMessage :: TgMessage.Message -> App [Action]
 processMessage (TgMessage.Message TgUser.User{userId} TgChat.Chat{chatId} replyId (TgMessage.Text text)) = do
   state <- get
 
-  let foo = Commands.executeCommand "/" text
-
   Config{initialRepeatCount} <- ask
   let rc = fromMaybe initialRepeatCount $ Map.lookup userId (repeatCount state)
+
+  let foo = Commands.executeCommand rc "/" text
 
   return $ case foo of
     Left Commands.NotACommand ->

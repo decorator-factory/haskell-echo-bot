@@ -33,12 +33,12 @@ data Error
     deriving Show
 
 
-type Handler = [T.Text] -> Either T.Text [Outcome]
+type Handler ctx = ctx -> [T.Text] -> Either T.Text [Outcome]
 
 
-data Definition = Definition
+data Definition ctx = Definition
   { name :: T.Text
-  , handler :: Handler
+  , handler :: Handler ctx
   }
 
 
@@ -55,21 +55,23 @@ parseCommand prefix text =
     _                -> Nothing
 
 
-helpHandler :: Handler
-helpHandler [] = Right [ShowMessage "Help!!!" Nothing]
-helpHandler _  = Left "Expected 0 arguments"
+helpHandler :: Handler ctx
+helpHandler ctx [] = Right [ShowMessage "Help!!!" Nothing]
+helpHandler ctx _  = Left "Expected 0 arguments"
 
 
-repeatHandler :: Handler
-repeatHandler [ns] = case readMaybe $ T.unpack ns of
+repeatHandler :: Handler Integer
+repeatHandler repeats [ns] = case readMaybe $ T.unpack ns of
   Nothing -> Left "Not a valid integer"
   Just n  -> if n < 1 || n > 5 then Left "Integer not in range 1..5" else Right [SetRepeatCount n]
-repeatHandler [] = Right
+repeatHandler repeats [] = Right
   [ ShowMessage
-      "Choose the new repeat count"
+      ("Your current repeat count is "
+        <> T.pack (show repeats)
+        <> ". Choose the new repeat count")
       (Just $ Keyboard "repeat" [("1", "1"), ("2", "2"), ("3", "3"), ("4", "4"), ("5", "5")])
   ]
-repeatHandler _ = Left "Expected 1 argument"
+repeatHandler repeats _ = Left "Expected 1 argument"
 
 
 maybeToEither :: b -> Maybe a -> Either b a
@@ -82,18 +84,18 @@ mapLeft _ (Right b) = Right b
 mapLeft f (Left a)  = Left (f a)
 
 
-executeCommand' :: [Definition] -> T.Text -> T.Text -> Either Error [Outcome]
-executeCommand' definitions prefix input = do
+executeCommand' :: [Definition ctx] -> ctx -> T.Text -> T.Text -> Either Error [Outcome]
+executeCommand' definitions ctx prefix input = do
   ParseResult{name, args} <- maybeToEither NotACommand $ parseCommand prefix input
   Definition{handler} <- maybeToEither (CommandNotFound name) $ find (\Definition{name=name'} -> name' == name) definitions
-  mapLeft DomainError $ handler args
+  mapLeft DomainError $ handler ctx args
 
 
-executeCommand :: T.Text -> T.Text -> Either Error [Outcome]
+executeCommand :: Integer -> T.Text -> T.Text -> Either Error [Outcome]
 executeCommand = executeCommand' defaultDefinitions
 
 
-defaultDefinitions :: [Definition]
+defaultDefinitions :: [Definition Integer]
 defaultDefinitions = uncurry Definition <$>
   [ ("help",   helpHandler)
   , ("repeat", repeatHandler)
