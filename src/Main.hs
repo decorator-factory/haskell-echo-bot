@@ -37,6 +37,9 @@ import qualified Telegram.Chat as TgChat
 import qualified Commands
 import Control.Monad.Reader
 import Control.Monad.State.Strict
+import Control.Applicative ((<|>))
+import Text.Read (readMaybe)
+import Data.Text (splitOn)
 
 -- Request building stuff
 
@@ -66,6 +69,7 @@ data Action
     { sendChatId :: Integer
     , messageText :: T.Text
     , replyId :: Maybe Integer
+    , keyboard :: Maybe InlineKeyboard
     }
   | SendSticker
     { sendChatId :: Integer
@@ -73,7 +77,7 @@ data Action
     , replyId :: Maybe Integer
     }
   | SetRepeatCount
-    { userId :: Integer
+    { chatId :: Integer
     , newRepeatCount :: Integer
     }
   | Log T.Text
@@ -81,6 +85,30 @@ data Action
 
 ifPresent :: (ToJSON v, KeyValue kv) => T.Text -> Maybe v -> [kv]
 ifPresent fieldName = maybeToList . fmap (fieldName .=)
+
+data InlineKeyboard = InlineKeyboard
+  { kbSource :: T.Text
+  , kbButtons :: [InlineKeyboardButton]
+  }
+  deriving Show
+
+data InlineKeyboardButton = InlineKeyboardButton
+  { kbLabel :: T.Text
+  , kbCallbackData :: T.Text
+  }
+  deriving Show
+
+serializeBtn :: T.Text -> InlineKeyboardButton -> Value
+serializeBtn src InlineKeyboardButton{..} =
+  object
+  [ "text" .= kbLabel
+  , "callback_data" .= (src <> " " <> kbCallbackData)
+  ]
+
+instance ToJSON InlineKeyboard where
+  toJSON InlineKeyboard{..} =
+    toJSON [ serializeBtn kbSource <$> kbButtons ]
+
 
 performAction ::  Action -> App ()
 performAction
@@ -91,6 +119,8 @@ performAction
           , "text"    .= messageText
           ]
           ++ ifPresent "reply_to_message_id" replyId
+          ++ ifPresent "reply_markup" ((\x -> object ["inline_keyboard" .= x]) <$> keyboard)
+    liftIO $ print json
     _ <- liftIO $ queryEndpoint $
       buildPostRequest botToken "sendMessage"
       & setRequestBodyJSON json
@@ -115,7 +145,7 @@ performAction
 
 performAction
   SetRepeatCount{..} = do
-    modify $ \s@BotState{repeatCount} -> s{repeatCount=Map.insert userId newRepeatCount repeatCount}
+    modify $ \s@BotState{repeatCount} -> s{repeatCount=Map.insert chatId newRepeatCount repeatCount}
 
 performActions :: [Action] -> App ()
 performActions = mapM_ performAction
@@ -125,14 +155,34 @@ performActions = mapM_ performAction
 
 data TgUpdate = TgUpdate
   { updateId :: Integer
-  , message :: TgMessage.Message
+  , content :: UpdateContent
   }
   deriving Show
+
+data UpdateContent
+  = Message TgMessage.Message
+  | CallbackQuery TgCallbackQuery
+  deriving Show
+
+data TgCallbackQuery = TgCallbackQuery
+  { cbData :: T.Text
+  , cbUser :: TgUser.User
+  , cbChat :: TgChat.Chat
+  }
+  deriving Show
+
+instance FromJSON TgCallbackQuery where
+  parseJSON = withObject "TgCallbackQuery" $ \o -> do
+    cbData <- o .: "data"
+    m <- o .: "message"
+    cbChat <- m .: "chat"
+    cbUser <- m .: "from"
+    return TgCallbackQuery{..}
 
 instance FromJSON TgUpdate where
   parseJSON = withObject "TgUpdate" $ \o -> do
     updateId <- o .: "update_id"
-    message <- o .: "message"
+    content <- (Message <$> o .: "message") <|> (CallbackQuery <$> o.: "callback_query")
     return TgUpdate{..}
 
 parseUpdate :: Value -> Maybe TgUpdate
@@ -148,11 +198,29 @@ applyUpdates updates = do
 
 
 computeActions :: TgUpdate -> App [Action]
-computeActions TgUpdate{updateId, message} = do
+computeActions TgUpdate{updateId, content} = do
   BotState{latestUpdateId} <- get
-  actions <- processMessage message
+  actions <- processContent content
   modify $ \s -> s { latestUpdateId = max (updateId + 1) latestUpdateId }
   return actions
+
+
+
+processContent :: UpdateContent -> App [Action]
+processContent (CallbackQuery cb) = processCallbackQuery cb
+processContent (Message msg) = processMessage msg
+
+
+processCallbackQuery :: TgCallbackQuery -> App [Action]
+processCallbackQuery TgCallbackQuery{cbData, cbUser, cbChat} = do
+  case T.splitOn " " cbData of
+    (cmd:args) -> processMessage $
+      TgMessage.Message cbUser cbChat Nothing
+      (TgMessage.Text $ "/" <> cmd <> " " <> T.intercalate " " args)
+
+    _          -> return [ Log $ "Invalid callback query data: " <> cbData ]
+
+
 
 processMessage :: TgMessage.Message -> App [Action]
 processMessage (TgMessage.Message _ TgChat.Chat{chatId} replyId (TgMessage.Text text)) = do
@@ -165,23 +233,29 @@ processMessage (TgMessage.Message _ TgChat.Chat{chatId} replyId (TgMessage.Text 
 
   return $ case foo of
     Left Commands.NotACommand ->
-      replicate (fromInteger rc) (SendMessage chatId text replyId)
+      replicate (fromInteger rc) (SendMessage chatId text replyId Nothing)
       ++
       [ Log $ "Sending " <> text <> " to chat " <> T.pack (show chatId)
       ]
     Left (Commands.CommandNotFound cmd) ->
-      [ SendMessage chatId ("⚠️ Command not found: " <> cmd) replyId
+      [ SendMessage chatId ("⚠️ Command not found: " <> cmd) replyId Nothing
       ]
     Left (Commands.DomainError e) ->
-      [ SendMessage chatId ("⚠️ " <> e) replyId
+      [ SendMessage chatId ("⚠️ " <> e) replyId Nothing
       ]
     Right outcomes ->
       outcomes >>= commandOutcomeToAction chatId replyId
 
 processMessage (TgMessage.Message _ TgChat.Chat{chatId} replyId (TgMessage.Sticker fileId)) = do
-  return
-    [ SendSticker chatId fileId replyId
-    , Log $ "Sending a sticker back to chat " <> T.pack (show chatId)
+
+  state <- get
+  Config{initialRepeatCount} <- ask
+  let rc = fromMaybe initialRepeatCount $ Map.lookup chatId (repeatCount state)
+
+  return $
+    replicate (fromInteger  rc) (SendSticker chatId fileId replyId)
+    ++
+    [ Log $ "Sending a sticker back to chat " <> T.pack (show chatId)
     ]
 
 processMessage (TgMessage.Message author chat _ _) = do
@@ -192,17 +266,27 @@ processMessage (TgMessage.Message author chat _ _) = do
 
 commandOutcomeToAction :: Integer -> Maybe Integer -> Commands.Outcome -> [Action]
 commandOutcomeToAction chatId replyId (Commands.SetRepeatCount n) =
-  [ SetRepeatCount{userId=chatId, newRepeatCount=n}
+  [ SetRepeatCount{chatId, newRepeatCount=n}
   , SendMessage
     { sendChatId = chatId
     , replyId = Nothing
-    , messageText = "Repeat count set to " <> fromString (show n)}
+    , messageText = "Repeat count set to " <> fromString (show n)
+    , keyboard = Nothing
+    }
   ]
 commandOutcomeToAction chatId replyId (Commands.ShowMessage msg) =
   [ SendMessage
     { sendChatId = chatId
     , replyId = replyId
-    , messageText = msg}
+    , messageText = msg
+    , keyboard = Just $ InlineKeyboard "repeat"
+      [ InlineKeyboardButton "one" "1"
+      , InlineKeyboardButton "two" "2"
+      , InlineKeyboardButton "three" "3"
+      , InlineKeyboardButton "four" "4"
+      , InlineKeyboardButton "five" "5"
+      ]
+    }
   ]
 
 
