@@ -33,6 +33,7 @@ import Control.Monad.Writer.Lazy
 import qualified Telegram.User as TgUser
 import qualified Telegram.Message as TgMessage
 import qualified Telegram.Chat as TgChat
+import qualified Telegram.Keyboard as TgKb
 
 import qualified Commands
 import Control.Monad.Reader
@@ -69,7 +70,7 @@ data Action
     { sendChatId :: Integer
     , messageText :: T.Text
     , replyId :: Maybe Integer
-    , keyboard :: Maybe InlineKeyboard
+    , keyboard :: Maybe TgKb.InlineKeyboard
     }
   | SendSticker
     { sendChatId :: Integer
@@ -87,32 +88,7 @@ data Action
 ifPresent :: (ToJSON v, KeyValue kv) => T.Text -> Maybe v -> [kv]
 ifPresent fieldName = maybeToList . fmap (fieldName .=)
 
-tgKeyboardFromCmdKeyboard :: Commands.Keyboard -> InlineKeyboard
-tgKeyboardFromCmdKeyboard (Commands.Keyboard source entries) =
-  InlineKeyboard source (uncurry InlineKeyboardButton <$> entries)
 
-data InlineKeyboard = InlineKeyboard
-  { kbSource :: T.Text
-  , kbButtons :: [InlineKeyboardButton]
-  }
-  deriving Show
-
-data InlineKeyboardButton = InlineKeyboardButton
-  { kbLabel :: T.Text
-  , kbCallbackData :: T.Text
-  }
-  deriving Show
-
-serializeBtn :: T.Text -> InlineKeyboardButton -> Value
-serializeBtn src InlineKeyboardButton{..} =
-  object
-  [ "text" .= kbLabel
-  , "callback_data" .= (src <> " " <> kbCallbackData)
-  ]
-
-instance ToJSON InlineKeyboard where
-  toJSON InlineKeyboard{..} =
-    toJSON [ serializeBtn kbSource <$> kbButtons ]
 
 
 performAction ::  Action -> App ()
@@ -175,25 +151,9 @@ data TgUpdate = TgUpdate
 
 data UpdateContent
   = Message TgMessage.Message
-  | CallbackQuery TgCallbackQuery
+  | CallbackQuery TgKb.CallbackQuery
   deriving Show
 
-data TgCallbackQuery = TgCallbackQuery
-  { cbId :: T.Text
-  , cbData :: T.Text
-  , cbUser :: TgUser.User
-  , cbChat :: TgChat.Chat
-  }
-  deriving Show
-
-instance FromJSON TgCallbackQuery where
-  parseJSON = withObject "TgCallbackQuery" $ \o -> do
-    cbId <- o .: "id"
-    cbData <- o .: "data"
-    m <- o .: "message"
-    cbChat <- m .: "chat"
-    cbUser <- o .: "from"
-    return TgCallbackQuery{..}
 
 instance FromJSON TgUpdate where
   parseJSON = withObject "TgUpdate" $ \o -> do
@@ -227,14 +187,18 @@ processContent (CallbackQuery cb) = processCallbackQuery cb
 processContent (Message msg) = processMessage msg
 
 
-processCallbackQuery :: TgCallbackQuery -> App [Action]
-processCallbackQuery TgCallbackQuery{cbId, cbData, cbUser, cbChat} = do
-  (AnswerCallbackQuery cbId :) <$> case T.splitOn " " cbData of
-    (cmd:args) -> processMessage $
-      TgMessage.Message cbUser cbChat Nothing
-      (TgMessage.Text $ "/" <> cmd <> " " <> T.intercalate " " args)
+processCallbackQuery :: TgKb.CallbackQuery -> App [Action]
+processCallbackQuery TgKb.CallbackQuery{cbId, cbData, cbUser, cbChat} =
+  -- Pressing a button simply emulates calling a command
+  let
+    result = case T.splitOn " " cbData of
+      (cmd:args) -> processMessage $
+        TgMessage.Message cbUser cbChat Nothing
+        (TgMessage.Text $ "/" <> cmd <> " " <> T.intercalate " " args)
 
-    _          -> return [ Log $ "Invalid callback query data: " <> cbData ]
+      _          -> return [ Log $ "Invalid callback query data: " <> cbData ]
+  in
+    (AnswerCallbackQuery cbId :) <$> result
 
 
 
@@ -295,7 +259,7 @@ commandOutcomeToAction chatId userId (Commands.ShowMessage msg keyboard) =
     { sendChatId = chatId
     , replyId = Nothing
     , messageText = msg
-    , keyboard = tgKeyboardFromCmdKeyboard <$> keyboard
+    , keyboard = TgKb.fromCmdKeyboard <$> keyboard
     }
   ]
 
