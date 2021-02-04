@@ -139,27 +139,28 @@ parseUpdate = parseMaybe parseJSON
 
 -- Update logic
 
-applyUpdates :: [TgUpdate] -> BotState -> ([Action], BotState)
-applyUpdates updates state = foldr applyUpdate ([], state) updates
+applyUpdates :: [TgUpdate] -> App [Action]
+applyUpdates updates = do
+  actions <- mapM computeActions updates
+  return $ concat actions
 
-applyUpdate :: TgUpdate -> ([Action], BotState) -> ([Action], BotState)
-applyUpdate update (actions, state) =
-  let (newActions, newState) =  computeActions update state
-  in (actions ++ newActions, newState)
 
-computeActions :: TgUpdate -> BotState -> ([Action], BotState)
-computeActions TgUpdate{updateId, message} state@BotState{latestUpdateId} = do
-    let (actions, newState) = processMessage message state
-    tell actions
-    return $ newState { latestUpdateId = max (updateId + 1) latestUpdateId }
+computeActions :: TgUpdate -> App [Action]
+computeActions TgUpdate{updateId, message} = do
+  BotState{latestUpdateId} <- get
+  actions <- processMessage message
+  modify $ \s -> s { latestUpdateId = max (updateId + 1) latestUpdateId }
+  return actions
 
-processMessage :: TgMessage.Message  -> BotState -> ([Action], BotState)
-processMessage (TgMessage.Message _ TgChat.Chat{chatId} replyId (TgMessage.Text text)) state = do
+processMessage :: TgMessage.Message -> App [Action]
+processMessage (TgMessage.Message _ TgChat.Chat{chatId} replyId (TgMessage.Text text)) = do
+  state <- get
+
   let foo = Commands.executeCommand "/" text
 
   let rc = fromMaybe 1 $ Map.lookup chatId (repeatCount state)
 
-  tell $ case foo of
+  return $ case foo of
     Left Commands.NotACommand ->
       replicate (fromInteger rc) (SendMessage chatId text replyId)
       ++
@@ -174,20 +175,16 @@ processMessage (TgMessage.Message _ TgChat.Chat{chatId} replyId (TgMessage.Text 
     Right outcomes ->
       outcomes >>= commandOutcomeToAction chatId replyId
 
-  return state
-
-processMessage (TgMessage.Message _ TgChat.Chat{chatId} replyId (TgMessage.Sticker fileId)) state = do
-  tell
+processMessage (TgMessage.Message _ TgChat.Chat{chatId} replyId (TgMessage.Sticker fileId)) = do
+  return
     [ SendSticker chatId fileId replyId
     , Log $ "Sending a sticker back to chat " <> T.pack (show chatId)
     ]
-  return state
 
-processMessage (TgMessage.Message author chat _ _) state = do
-  tell
+processMessage (TgMessage.Message author chat _ _) = do
+  return
     [ Log $ TgUser.format author <> " sent an unsupported message in " <> T.pack (show chat)
     ]
-  return state
 
 
 commandOutcomeToAction :: Integer -> Maybe Integer -> Commands.Outcome -> [Action]
@@ -246,10 +243,9 @@ pollForever = do
   liftIO $ print updatesM
 
 
-  let (actions, newState) = case updatesM of
-        Just updates -> applyUpdates updates state
-        Nothing -> ([], state)
-  put newState
+  actions <- case updatesM of
+        Just updates -> applyUpdates updates
+        Nothing -> return []
 
   liftIO $ performActions config actions
 
