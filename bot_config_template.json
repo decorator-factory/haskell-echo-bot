@@ -1,4 +1,5 @@
 {
     "token": "put your token here",
-    "timeout": 4
+    "timeout": 4,
+    "repeat_count": 2
 }

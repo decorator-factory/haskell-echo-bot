@@ -160,7 +160,8 @@ processMessage (TgMessage.Message _ TgChat.Chat{chatId} replyId (TgMessage.Text 
 
   let foo = Commands.executeCommand "/" text
 
-  let rc = fromMaybe 1 $ Map.lookup chatId (repeatCount state)
+  Config{initialRepeatCount} <- ask
+  let rc = fromMaybe initialRepeatCount $ Map.lookup chatId (repeatCount state)
 
   return $ case foo of
     Left Commands.NotACommand ->
@@ -262,6 +263,7 @@ pollForever = do
 data Config = Config
   { botToken :: String
   , timeoutSeconds :: Integer
+  , initialRepeatCount :: Integer
   }
   deriving Show
 
@@ -269,6 +271,7 @@ instance FromJSON Config where
   parseJSON = withObject "Config" $ \o -> do
     botToken <- o .: "token"
     timeoutSeconds <- o .:? "timeout" .!= 2
+    initialRepeatCount <- o .:? "repeat_count" .!= 1
     return Config{..}
 
 
