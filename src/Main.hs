@@ -77,7 +77,7 @@ data Action
     , replyId :: Maybe Integer
     }
   | SetRepeatCount
-    { chatId :: Integer
+    { userId :: Integer
     , newRepeatCount :: Integer
     }
   | AnswerCallbackQuery T.Text
@@ -150,7 +150,7 @@ performAction
 
 performAction
   SetRepeatCount{..} = do
-    modify $ \s@BotState{repeatCount} -> s{repeatCount=Map.insert chatId newRepeatCount repeatCount}
+    modify $ \s@BotState{repeatCount} -> s{repeatCount=Map.insert userId newRepeatCount repeatCount}
 
 performAction
   (AnswerCallbackQuery cbQueryId) = do
@@ -192,7 +192,7 @@ instance FromJSON TgCallbackQuery where
     cbData <- o .: "data"
     m <- o .: "message"
     cbChat <- m .: "chat"
-    cbUser <- m .: "from"
+    cbUser <- o .: "from"
     return TgCallbackQuery{..}
 
 instance FromJSON TgUpdate where
@@ -239,13 +239,13 @@ processCallbackQuery TgCallbackQuery{cbId, cbData, cbUser, cbChat} = do
 
 
 processMessage :: TgMessage.Message -> App [Action]
-processMessage (TgMessage.Message _ TgChat.Chat{chatId} replyId (TgMessage.Text text)) = do
+processMessage (TgMessage.Message TgUser.User{userId} TgChat.Chat{chatId} replyId (TgMessage.Text text)) = do
   state <- get
 
   let foo = Commands.executeCommand "/" text
 
   Config{initialRepeatCount} <- ask
-  let rc = fromMaybe initialRepeatCount $ Map.lookup chatId (repeatCount state)
+  let rc = fromMaybe initialRepeatCount $ Map.lookup userId (repeatCount state)
 
   return $ case foo of
     Left Commands.NotACommand ->
@@ -260,13 +260,13 @@ processMessage (TgMessage.Message _ TgChat.Chat{chatId} replyId (TgMessage.Text 
       [ SendMessage chatId ("⚠️ " <> e) replyId Nothing
       ]
     Right outcomes ->
-      outcomes >>= commandOutcomeToAction chatId replyId
+      outcomes >>= commandOutcomeToAction chatId userId
 
-processMessage (TgMessage.Message _ TgChat.Chat{chatId} replyId (TgMessage.Sticker fileId)) = do
+processMessage (TgMessage.Message TgUser.User{userId} TgChat.Chat{chatId} replyId (TgMessage.Sticker fileId)) = do
 
   state <- get
   Config{initialRepeatCount} <- ask
-  let rc = fromMaybe initialRepeatCount $ Map.lookup chatId (repeatCount state)
+  let rc = fromMaybe initialRepeatCount $ Map.lookup userId (repeatCount state)
 
   return $
     replicate (fromInteger  rc) (SendSticker chatId fileId replyId)
@@ -280,9 +280,9 @@ processMessage (TgMessage.Message author chat _ _) = do
     ]
 
 
-commandOutcomeToAction :: Integer -> Maybe Integer -> Commands.Outcome -> [Action]
-commandOutcomeToAction chatId replyId (Commands.SetRepeatCount n) =
-  [ SetRepeatCount{chatId, newRepeatCount=n}
+commandOutcomeToAction :: Integer -> Integer -> Commands.Outcome -> [Action]
+commandOutcomeToAction chatId userId (Commands.SetRepeatCount n) =
+  [ SetRepeatCount{userId, newRepeatCount=n}
   , SendMessage
     { sendChatId = chatId
     , replyId = Nothing
@@ -290,10 +290,10 @@ commandOutcomeToAction chatId replyId (Commands.SetRepeatCount n) =
     , keyboard = Nothing
     }
   ]
-commandOutcomeToAction chatId replyId (Commands.ShowMessage msg keyboard) =
+commandOutcomeToAction chatId userId (Commands.ShowMessage msg keyboard) =
   [ SendMessage
     { sendChatId = chatId
-    , replyId = replyId
+    , replyId = Nothing
     , messageText = msg
     , keyboard = tgKeyboardFromCmdKeyboard <$> keyboard
     }
