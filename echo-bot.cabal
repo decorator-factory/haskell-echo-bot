@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 5f35fea4107f7b93c95c97453c0166dc466c5527c4792d94eb0acacca1f45b8b
+-- hash: 120aa99ecd6171d3a3f2abcc1afa8968e40fc62fd01087f52f5cb3041f9bf279
 
 name:           echo-bot
 version:        0.1.0.0
@@ -34,6 +34,7 @@ executable echo-bot
     , aeson-pretty
     , base >=4.7 && <5
     , bytestring
+    , containers
     , http-conduit
     , lens
     , lens-aeson

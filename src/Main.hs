@@ -32,6 +32,8 @@ import qualified Telegram.Message as TgMessage
 import qualified Telegram.Chat as TgChat
 
 import qualified Commands
+import Control.Monad.Reader
+import Control.Monad.State.Strict
 
 -- Request building stuff
 
@@ -189,36 +191,40 @@ initialBotState = BotState
 
 -- Main loop:
 
-pollForever :: Config -> BotState -> IO ()
-pollForever config state = do
+pollForever :: App ()
+pollForever = do
+  config <- ask
+  state <- get
 
-  putStrLn $ "Given state" ++ show state
-  putStrLn "Getting updates..."
+  liftIO $ putStrLn $ "Given state" ++ show state
+  liftIO $ putStrLn "Getting updates..."
 
-  json <- queryEndpoint $
+  json <- liftIO $ queryEndpoint $
     buildGetRequest (botToken config) "getUpdates"
     & withParam "limit" "10"
     & withParam "offset" (show $ latestUpdateId state)
     & withParam "timeout" (show $ timeoutSeconds config)
 
-  LBS.putStrLn $ encodePretty json
+  liftIO $ LBS.putStrLn $ encodePretty json
 
   let updatesM = do
         updateJsons <- preview (key "result" . _Array) json
         return $ mapMaybe parseUpdate $ toList updateJsons
 
-  print updatesM
+  liftIO $ print updatesM
+
 
   let (actions, newState) = case updatesM of
         Just updates -> applyUpdates updates state
         Nothing -> ([], state)
+  put newState
 
-  performActions config actions
+  liftIO $ performActions config actions
 
-  print actions
+  liftIO $ print actions
 
-  threadDelay 500000
-  pollForever config newState
+  liftIO $ threadDelay 500000
+  pollForever
 
 
 -- Program configuration
@@ -234,6 +240,9 @@ instance FromJSON Config where
     botToken <- o .: "token"
     timeoutSeconds <- o .:? "timeout" .!= 2
     return Config{..}
+
+
+type App a = StateT BotState (ReaderT Config IO) a
 
 
 -- entry point
@@ -256,4 +265,4 @@ main = do
 
   print config
 
-  pollForever config initialBotState
+  pollForever `evalStateT` initialBotState `runReaderT` config

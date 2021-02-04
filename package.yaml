@@ -21,6 +21,7 @@ dependencies:
   - text
   - http-conduit
   - mtl
+  - containers
 
 executables:
   echo-bot:
