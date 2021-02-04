@@ -82,41 +82,48 @@ data Action
 ifPresent :: (ToJSON v, KeyValue kv) => T.Text -> Maybe v -> [kv]
 ifPresent fieldName = maybeToList . fmap (fieldName .=)
 
-performAction :: Config -> Action -> IO ()
+performAction ::  Action -> App ()
 performAction
-  Config{botToken} SendMessage{..} = do
+  SendMessage{..} = do
+    Config{botToken} <- ask
     let json = object $
           [ "chat_id" .= sendChatId
           , "text"    .= messageText
           ]
           ++ ifPresent "reply_to_message_id" replyId
-    _ <- queryEndpoint $
+    _ <- liftIO $ queryEndpoint $
       buildPostRequest botToken "sendMessage"
       & setRequestBodyJSON json
     return ()
 
 performAction
-  Config{botToken} SendSticker{..} = do
+  SendSticker{..} = do
+    Config{botToken} <- ask
     let json = object $
           [ "chat_id" .= sendChatId
           , "sticker" .= fileId
           ]
           ++ ifPresent "reply_to_message_id" replyId
-    _ <- queryEndpoint $
+    _ <- liftIO $ queryEndpoint $
       buildPostRequest botToken "sendSticker"
       & setRequestBodyJSON json
     return ()
 
 performAction
-  Config{} (Log text) = do
-    TIO.putStrLn $ "LOG | " <> text
+  (Log text) = do
+    liftIO $ TIO.putStrLn $ "LOG | " <> text
 
 performAction
-  Config{} SetRepeatCount{..} = do
-    putStrLn $ "Setting repeat count of " <> fromString (show userId) <> " to " <> fromString (show newRepeatCount)
+  SetRepeatCount{..} = do
+    liftIO
+      $ putStrLn
+      $ "Setting repeat count of "
+        <> fromString (show userId)
+        <> " to "
+        <> fromString (show newRepeatCount)
 
-performActions :: Config -> [Action] -> IO ()
-performActions config = mapM_ (performAction config)
+performActions :: [Action] -> App ()
+performActions = mapM_ performAction
 
 
 -- Update type:
@@ -247,7 +254,7 @@ pollForever = do
         Just updates -> applyUpdates updates
         Nothing -> return []
 
-  liftIO $ performActions config actions
+  performActions actions
 
   liftIO $ print actions
 
