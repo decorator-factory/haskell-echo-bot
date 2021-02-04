@@ -115,12 +115,7 @@ performAction
 
 performAction
   SetRepeatCount{..} = do
-    liftIO
-      $ putStrLn
-      $ "Setting repeat count of "
-        <> fromString (show userId)
-        <> " to "
-        <> fromString (show newRepeatCount)
+    modify $ \s@BotState{repeatCount} -> s{repeatCount=Map.insert userId newRepeatCount repeatCount}
 
 performActions :: [Action] -> App ()
 performActions = mapM_ performAction
