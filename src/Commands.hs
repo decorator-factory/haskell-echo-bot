@@ -6,6 +6,7 @@ module Commands
   ( executeCommand
   , Outcome (..)
   , Error (..)
+  , Keyboard (..)
   )  where
 
 import qualified Data.Text as T
@@ -14,9 +15,15 @@ import Text.Read ( readMaybe )
 import Data.List ( find )
 
 
+data Keyboard = Keyboard
+  { source :: T.Text
+  , entries :: [(T.Text, T.Text)]
+  } deriving Show
+
+
 data Outcome
     = SetRepeatCount Integer
-    | ShowMessage T.Text
+    | ShowMessage T.Text (Maybe Keyboard)
     deriving Show
 
 data Error
@@ -49,7 +56,7 @@ parseCommand prefix text =
 
 
 helpHandler :: Handler
-helpHandler [] = Right [ShowMessage "Help!!!"]
+helpHandler [] = Right [ShowMessage "Help!!!" Nothing]
 helpHandler _  = Left "Expected 0 arguments"
 
 
@@ -57,6 +64,11 @@ repeatHandler :: Handler
 repeatHandler [ns] = case readMaybe $ T.unpack ns of
   Nothing -> Left "Not a valid integer"
   Just n  -> if n < 1 || n > 5 then Left "Integer not in range 1..5" else Right [SetRepeatCount n]
+repeatHandler [] = Right
+  [ ShowMessage
+      "Choose the new repeat count"
+      (Just $ Keyboard "repeat" [("1", "1"), ("2", "2"), ("3", "3"), ("4", "4"), ("5", "5")])
+  ]
 repeatHandler _ = Left "Expected 1 argument"
 
 

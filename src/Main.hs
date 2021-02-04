@@ -86,6 +86,10 @@ data Action
 ifPresent :: (ToJSON v, KeyValue kv) => T.Text -> Maybe v -> [kv]
 ifPresent fieldName = maybeToList . fmap (fieldName .=)
 
+tgKeyboardFromCmdKeyboard :: Commands.Keyboard -> InlineKeyboard
+tgKeyboardFromCmdKeyboard (Commands.Keyboard source entries) =
+  InlineKeyboard source (uncurry InlineKeyboardButton <$> entries)
+
 data InlineKeyboard = InlineKeyboard
   { kbSource :: T.Text
   , kbButtons :: [InlineKeyboardButton]
@@ -274,18 +278,12 @@ commandOutcomeToAction chatId replyId (Commands.SetRepeatCount n) =
     , keyboard = Nothing
     }
   ]
-commandOutcomeToAction chatId replyId (Commands.ShowMessage msg) =
+commandOutcomeToAction chatId replyId (Commands.ShowMessage msg keyboard) =
   [ SendMessage
     { sendChatId = chatId
     , replyId = replyId
     , messageText = msg
-    , keyboard = Just $ InlineKeyboard "repeat"
-      [ InlineKeyboardButton "one" "1"
-      , InlineKeyboardButton "two" "2"
-      , InlineKeyboardButton "three" "3"
-      , InlineKeyboardButton "four" "4"
-      , InlineKeyboardButton "five" "5"
-      ]
+    , keyboard = tgKeyboardFromCmdKeyboard <$> keyboard
     }
   ]
 
