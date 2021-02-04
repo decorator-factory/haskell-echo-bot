@@ -20,8 +20,11 @@ import Data.Aeson hiding ( json )
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 
+import qualified Data.Map as Map
+import Data.Map ( Map )
+
 import Data.Aeson.Encode.Pretty ( encodePretty )
-import Data.Maybe (maybeToList, mapMaybe)
+import Data.Maybe (maybeToList, mapMaybe, fromMaybe)
 import Data.Foldable (Foldable(toList))
 import System.Environment (lookupEnv)
 import Data.Aeson.Types (parseMaybe)
@@ -69,6 +72,10 @@ data Action
     , fileId :: T.Text
     , replyId :: Maybe Integer
     }
+  | SetRepeatCount
+    { userId :: Integer
+    , newRepeatCount :: Integer
+    }
   | Log T.Text
     deriving Show
 
@@ -103,6 +110,10 @@ performAction
 performAction
   Config{} (Log text) = do
     TIO.putStrLn $ "LOG | " <> text
+
+performAction
+  Config{} SetRepeatCount{..} = do
+    putStrLn $ "Setting repeat count of " <> fromString (show userId) <> " to " <> fromString (show newRepeatCount)
 
 performActions :: Config -> [Action] -> IO ()
 performActions config = mapM_ (performAction config)
@@ -145,10 +156,14 @@ computeActions TgUpdate{updateId, message} state@BotState{latestUpdateId} = do
 processMessage :: TgMessage.Message  -> BotState -> ([Action], BotState)
 processMessage (TgMessage.Message _ TgChat.Chat{chatId} replyId (TgMessage.Text text)) state = do
   let foo = Commands.executeCommand "/" text
+
+  let rc = fromMaybe 1 $ Map.lookup chatId (repeatCount state)
+
   tell $ case foo of
     Left Commands.NotACommand ->
-      [ SendMessage chatId text replyId
-      , Log $ "Sending " <> text <> " to chat " <> T.pack (show chatId)
+      replicate (fromInteger rc) (SendMessage chatId text replyId)
+      ++
+      [ Log $ "Sending " <> text <> " to chat " <> T.pack (show chatId)
       ]
     Left (Commands.CommandNotFound cmd) ->
       [ SendMessage chatId ("⚠️ Command not found: " <> cmd) replyId
@@ -157,8 +172,7 @@ processMessage (TgMessage.Message _ TgChat.Chat{chatId} replyId (TgMessage.Text 
       [ SendMessage chatId ("⚠️ " <> e) replyId
       ]
     Right outcomes ->
-      [ SendMessage chatId (T.pack $ show outcomes) replyId
-      ]
+      outcomes >>= commandOutcomeToAction chatId replyId
 
   return state
 
@@ -176,16 +190,34 @@ processMessage (TgMessage.Message author chat _ _) state = do
   return state
 
 
+commandOutcomeToAction :: Integer -> Maybe Integer -> Commands.Outcome -> [Action]
+commandOutcomeToAction chatId replyId (Commands.SetRepeatCount n) =
+  [ SetRepeatCount{userId=chatId, newRepeatCount=n}
+  , SendMessage
+    { sendChatId = chatId
+    , replyId = Nothing
+    , messageText = "Repeat count set to " <> fromString (show n)}
+  ]
+commandOutcomeToAction chatId replyId (Commands.ShowMessage msg) =
+  [ SendMessage
+    { sendChatId = chatId
+    , replyId = replyId
+    , messageText = msg}
+  ]
+
+
 -- Bot state:
 
-newtype BotState = BotState
+data BotState = BotState
   { latestUpdateId :: Integer
+  , repeatCount :: Map Integer Integer
   }
   deriving Show
 
 initialBotState :: BotState
 initialBotState = BotState
   { latestUpdateId = -100
+  , repeatCount = Map.empty
   }
 
 
